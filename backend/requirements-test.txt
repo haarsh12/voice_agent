@@ -1,0 +1,15 @@
+# Test dependencies for Vyamit Voice Backend
+
+# Core testing framework
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# HTTP client for TestClient
+httpx>=0.24.0
+
+# Optional: test reporting
+pytest-html>=3.2.0
+
+# Optional: test watching
+pytest-watch>=4.2.0

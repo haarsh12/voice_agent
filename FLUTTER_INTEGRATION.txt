@@ -1,0 +1,396 @@
+# Flutter/Android Integration Guide for Vyamit Voice Assistant
+
+## Overview
+Your existing backend works perfectly with Flutter! You only need to:
+1. Use LiveKit Flutter SDK instead of web SDK
+2. Call your existing /api/token endpoint
+3. Connect to the same LiveKit room
+
+---
+
+## 1. Add Dependencies (pubspec.yaml)
+
+dependencies:
+  flutter:
+    sdk: flutter
+  livekit_client: ^2.0.0
+  http: ^1.1.0
+  permission_handler: ^11.0.0  # For microphone permissions
+
+---
+
+## 2. Android Permissions (android/app/src/main/AndroidManifest.xml)
+
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+<uses-permission android:name="android.permission.BLUETOOTH" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+---
+
+## 3. Basic Flutter Implementation
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:permission_handler/permission_handler.dart';
+
+class VoiceAssistantPage extends StatefulWidget {
+  @override
+  _VoiceAssistantPageState createState() => _VoiceAssistantPageState();
+}
+
+class _VoiceAssistantPageState extends State<VoiceAssistantPage> {
+  Room? _room;
+  bool _isConnected = false;
+  bool _isConnecting = false;
+  String _status = 'Disconnected';
+  
+  // Your backend URL
+  final String backendUrl = 'http://YOUR_SERVER_IP:8000';
+  
+  @override
+  void initState() {
+    super.initState();
+    _requestPermissions();
+  }
+  
+  Future<void> _requestPermissions() async {
+    await Permission.microphone.request();
+  }
+  
+  // Get token from your existing backend
+  Future<Map<String, String>> _getToken() async {
+    final response = await http.post(
+      Uri.parse('$backendUrl/api/token'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'room_name': 'flutter-room-${DateTime.now().millisecondsSinceEpoch}',
+        'participant_name': 'Mobile User',
+      }),
+    );
+    
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return {
+        'server_url': data['server_url'],
+        'participant_token': data['participant_token'],
+      };
+    }
+    throw Exception('Failed to get token');
+  }
+  
+  Future<void> _connect() async {
+    if (_isConnecting) return;
+    
+    setState(() {
+      _isConnecting = true;
+      _status = 'Connecting...';
+    });
+    
+    try {
+      // Get token from your backend
+      final tokenData = await _getToken();
+      
+      // Create room
+      _room = Room();
+      
+      // Setup event listeners
+      _room!.addListener(_onRoomUpdate);
+      
+      // Connect to LiveKit
+      await _room!.connect(
+        tokenData['server_url']!,
+        tokenData['participant_token']!,
+        roomOptions: const RoomOptions(
+          defaultAudioCaptureOptions: AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+          ),
+        ),
+      );
+      
+      // Enable microphone
+      await _room!.localParticipant?.setMicrophoneEnabled(true);
+      
+      setState(() {
+        _isConnected = true;
+        _isConnecting = false;
+        _status = 'Connected - Listening';
+      });
+      
+    } catch (e) {
+      setState(() {
+        _isConnecting = false;
+        _status = 'Error: $e';
+      });
+    }
+  }
+  
+  Future<void> _disconnect() async {
+    await _room?.disconnect();
+    await _room?.dispose();
+    _room = null;
+    
+    setState(() {
+      _isConnected = false;
+      _status = 'Disconnected';
+    });
+  }
+  
+  void _onRoomUpdate() {
+    setState(() {
+      // Update UI based on room state
+    });
+  }
+  
+  @override
+  void dispose() {
+    _room?.dispose();
+    super.dispose();
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Vyamit Voice Assistant'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _isConnected ? Icons.mic : Icons.mic_off,
+              size: 100,
+              color: _isConnected ? Colors.green : Colors.grey,
+            ),
+            SizedBox(height: 20),
+            Text(
+              _status,
+              style: TextStyle(fontSize: 18),
+            ),
+            SizedBox(height: 40),
+            ElevatedButton(
+              onPressed: _isConnecting 
+                ? null 
+                : _isConnected 
+                  ? _disconnect 
+                  : _connect,
+              child: Text(
+                _isConnecting 
+                  ? 'Connecting...' 
+                  : _isConnected 
+                    ? 'Disconnect' 
+                    : 'Connect',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+```
+
+---
+
+## 4. What You DON'T Need to Change
+
+✅ Backend API stays exactly the same
+✅ FastAPI /api/token endpoint - works as-is
+✅ Agent worker (Python) - no changes needed
+✅ STT/LLM/TTS configuration - same .env file
+✅ LiveKit Cloud setup - same credentials
+
+---
+
+## 5. What Changes
+
+❌ Remove: React/Vite frontend
+✅ Add: Flutter UI
+✅ Replace: @livekit/components-react → livekit_client package
+✅ Update: API calls use http package instead of fetch
+
+---
+
+## 6. Testing Your Flutter App
+
+### Development (Same WiFi Network):
+```dart
+final String backendUrl = 'http://192.168.1.XXX:8000';  // Your PC's IP
+```
+
+### Production:
+```dart
+final String backendUrl = 'https://your-domain.com';  // Deploy backend
+```
+
+---
+
+## 7. Features That Work Out of the Box
+
+✅ Real-time voice conversation
+✅ Multi-language support (English, Hindi, Marathi)
+✅ Same Deepgram STT accuracy
+✅ Same Mistral AI responses
+✅ Same Cartesia TTS voices
+✅ Automatic language detection and switching
+✅ Audio visualization (can add with Flutter packages)
+
+---
+
+## 8. Additional Flutter Enhancements
+
+### Add Audio Visualization:
+```yaml
+dependencies:
+  flutter_sound: ^9.2.0
+  audio_waveforms: ^1.0.0
+```
+
+### Add Speech-to-Text Display:
+Use LiveKit's transcript events to show what user said
+
+### Push Notifications:
+```yaml
+dependencies:
+  firebase_messaging: ^14.0.0
+```
+
+---
+
+## 9. Complete Project Structure
+
+```
+voice_stream/
+├── backend/                    # KEEP AS-IS
+│   ├── app/
+│   ├── .env                   # Same config
+│   └── ...
+├── flutter_app/               # NEW
+│   ├── lib/
+│   │   ├── main.dart
+│   │   ├── pages/
+│   │   │   └── voice_assistant_page.dart
+│   │   ├── services/
+│   │   │   ├── api_service.dart
+│   │   │   └── livekit_service.dart
+│   │   └── widgets/
+│   │       └── audio_visualizer.dart
+│   ├── android/
+│   ├── ios/
+│   └── pubspec.yaml
+```
+
+---
+
+## 10. API Service (Flutter)
+
+```dart
+// lib/services/api_service.dart
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+class ApiService {
+  final String baseUrl;
+  
+  ApiService(this.baseUrl);
+  
+  Future<Map<String, dynamic>> getHealth() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/health'),
+    );
+    return json.decode(response.body);
+  }
+  
+  Future<TokenResponse> getToken({
+    String? roomName,
+    String? participantName,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/token'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        if (roomName != null) 'room_name': roomName,
+        if (participantName != null) 'participant_name': participantName,
+      }),
+    );
+    
+    if (response.statusCode == 200) {
+      return TokenResponse.fromJson(json.decode(response.body));
+    }
+    throw Exception('Failed to get token: ${response.statusCode}');
+  }
+}
+
+class TokenResponse {
+  final String serverUrl;
+  final String participantToken;
+  
+  TokenResponse({
+    required this.serverUrl,
+    required this.participantToken,
+  });
+  
+  factory TokenResponse.fromJson(Map<String, dynamic> json) {
+    return TokenResponse(
+      serverUrl: json['server_url'],
+      participantToken: json['participant_token'],
+    );
+  }
+}
+```
+
+---
+
+## 11. Run Commands
+
+```bash
+# Keep backend running
+cd backend
+.venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Keep agent worker running
+cd backend
+python -m app.agent.runner start
+
+# Run Flutter app
+cd flutter_app
+flutter pub get
+flutter run
+```
+
+---
+
+## 12. Key Advantages
+
+✅ Native Android/iOS performance
+✅ Better battery life than web view
+✅ Access to native features (notifications, background)
+✅ Same backend = easier maintenance
+✅ Multi-platform (Android + iOS + Web from same code)
+✅ Better microphone handling on mobile
+
+---
+
+## 13. Resources
+
+- LiveKit Flutter SDK: https://docs.livekit.io/client-sdk-flutter/
+- Flutter Permission Handler: https://pub.dev/packages/permission_handler
+- Example Apps: https://github.com/livekit/client-sdk-flutter/tree/main/example
+
+---
+
+## Summary
+
+YES, you can use the same backend with Flutter!
+- Backend: No changes needed ✅
+- Agent: No changes needed ✅  
+- Only change: Replace React frontend with Flutter app ✅
+
+The voice assistant will work exactly the same on mobile!

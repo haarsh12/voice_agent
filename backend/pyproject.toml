@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vyamit-voice-backend"
+version = "0.1.0"
+description = "Vyamit Voice Assistant Test Backend with LiveKit, Deepgram, Cartesia, Mistral & FastAPI"
+requires-python = ">=3.10"
+dependencies = [
+    "livekit-agents>=1.6.1,<2.0.0",
+    "livekit-plugins-mistralai>=1.6.0,<2.0.0",
+    "livekit-plugins-deepgram>=1.6.0,<2.0.0",
+    "livekit-plugins-cartesia>=1.6.0,<2.0.0",
+    "livekit-plugins-ai-coustics>=0.3.0,<1.0.0",
+    "livekit-api>=1.2.0,<2.0.0",
+    "fastapi>=0.110.0,<1.0.0",
+    "uvicorn[standard]>=0.28.0,<1.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "pydantic-settings>=2.2.0,<3.0.0"
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.0,<1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
