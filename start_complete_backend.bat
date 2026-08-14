@@ -1,4 +1,4 @@
-@echo off
+git push -u origin main@echo off
 echo ===================================
 echo Starting Complete Vyamit Voice Backend
 echo ===================================

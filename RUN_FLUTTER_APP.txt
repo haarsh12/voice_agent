@@ -1,0 +1,96 @@
+# Running the Flutter App
+
+## Quick Start
+
+### 1. Make Sure Backend is Running
+```bash
+# Terminal 1 - Backend API
+cd backend
+.venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2 - Agent Worker
+cd backend
+.venv\Scripts\activate
+python -m app.agent.runner start
+```
+
+### 2. Run Flutter App
+```bash
+# Terminal 3 - Flutter
+cd android_app
+flutter run
+```
+
+## Device Options
+
+### Android Emulator
+```bash
+# Will automatically use emulator if running
+flutter run
+```
+
+### Chrome (Test Quickly)
+```bash
+flutter run -d chrome
+```
+
+### Real Android Device
+```bash
+# 1. Enable USB Debugging on phone
+# 2. Connect via USB
+# 3. Check connection:
+flutter devices
+
+# 4. Update API URL in lib/services/api_service.dart:
+#    Change baseUrl to your PC's IP (find with: ipconfig)
+#    Example: 'http://192.168.1.100:8000'
+
+# 5. Run:
+flutter run
+```
+
+## What You'll See
+
+1. **App Opens**: Shows "Vyamit" with microphone icon
+2. **Status**: "Disconnected" with service status message
+3. **Button**: "Connect to voice assistant" button
+4. **Click Connect**: 
+   - Asks for microphone permission
+   - Connects to backend
+   - Gets LiveKit token
+   - Joins voice session
+5. **Status Changes**: "Connected - Listening"
+6. **Speak**: Start talking!
+7. **Response**: Agent responds in real-time
+
+## Success Indicators
+
+✅ Service status shows "Voice service ready"
+✅ Button is clickable
+✅ No "Backend not reachable" error
+✅ Status changes to "Connected" after clicking
+✅ You can hear the agent's voice
+✅ Agent responds to your speech
+
+## Common Issues
+
+### "Backend not reachable"
+- Start backend first: `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+- Start agent worker: `python -m app.agent.runner start`
+
+### For Real Device Testing
+- Find your PC IP: `ipconfig` (Windows)
+- Update `android_app/lib/services/api_service.dart`:
+  ```dart
+  static const String baseUrl = 'http://YOUR_PC_IP:8000';
+  ```
+- Phone and PC must be on same WiFi
+
+### Microphone Permission
+- App will ask for permission when connecting
+- Grant microphone access
+
+## That's It!
+
+Your Flutter app is ready and uses the SAME backend as your web app!
