@@ -1,0 +1,116 @@
+================================================================================
+FLUTTER APP - BACKEND CONNECTIVITY TROUBLESHOOTING
+================================================================================
+
+PROBLEM: Flutter app shows "Backend not reachable" even when on same WiFi
+
+SOLUTION STEPS:
+================================================================================
+
+STEP 1: RESTART BACKEND WITH CORRECT CONFIGURATION
+--------------------------------------------------
+✅ FIXED: Changed API_HOST from 127.0.0.1 to 0.0.0.0 in backend/.env
+
+1. Stop the backend if it's running (Ctrl+C)
+2. Restart using: start_backend.bat
+3. You should see: "Uvicorn running on http://0.0.0.0:8000"
+
+STEP 2: ADD WINDOWS FIREWALL RULE
+--------------------------------------------------
+Your Windows Firewall may be blocking port 8000 from external devices.
+
+Option A - Run the automated script (RECOMMENDED):
+   1. Right-click on: allow_port_8000.bat
+   2. Select "Run as Administrator"
+   3. Click "Yes" when prompted
+
+Option B - Manual firewall rule:
+   1. Open Windows Defender Firewall
+   2. Click "Advanced settings"
+   3. Click "Inbound Rules" → "New Rule"
+   4. Rule Type: Port
+   5. Protocol: TCP, Port: 8000
+   6. Action: Allow the connection
+   7. Name: "Backend API Port 8000"
+
+STEP 3: VERIFY NETWORK CONNECTIVITY
+--------------------------------------------------
+Run: test_network_access.bat
+
+This will check:
+✓ Backend is running locally
+✓ Backend is accessible on network IP
+✓ Firewall rules
+✓ What IP addresses backend is listening on
+
+STEP 4: TEST FROM PHONE BROWSER
+--------------------------------------------------
+Before testing the Flutter app, verify backend is reachable:
+
+1. Open Chrome on your phone
+2. Navigate to: http://10.24.124.207:8000/api/health
+3. You should see JSON response:
+   {
+     "status": "healthy",
+     "agent_name": "vyamit-voice",
+     "configured": true
+   }
+
+If this works, your Flutter app will work too!
+
+STEP 5: REINSTALL FLUTTER APP
+--------------------------------------------------
+The UI overflow has been fixed. Reinstall the app:
+
+1. Stop the running app (press 'q' in Flutter terminal)
+2. Run: flutter run
+3. Wait for app to install and launch
+
+WHAT WAS FIXED:
+================================================================================
+
+1. ✅ Backend .env: Changed API_HOST=127.0.0.1 → API_HOST=0.0.0.0
+2. ✅ Flutter UI: Wrapped content in SingleChildScrollView (fixes 25px overflow)
+3. ✅ Error message: Now shows correct IP (http://10.24.124.207:8000)
+4. ✅ Debug logging: Added console logs in API service to diagnose issues
+
+VERIFY YOUR SETUP:
+================================================================================
+
+Phone WiFi IP range: Should be 10.24.124.x (same subnet as PC)
+PC IP: 10.24.124.207
+Backend URL: http://10.24.124.207:8000
+Flutter app API URL: Already configured correctly
+
+COMMON ISSUES:
+================================================================================
+
+Issue: "Connection refused"
+→ Backend not running or firewall blocking
+→ Run allow_port_8000.bat as Administrator
+
+Issue: "Network unreachable"  
+→ Phone and PC on different WiFi networks
+→ Connect both to same WiFi
+
+Issue: PC IP changed
+→ Run: ipconfig
+→ Find IPv4 Address under your WiFi adapter
+→ Update android_app/lib/services/api_service.dart line 6
+
+Issue: Still shows "Backend not reachable"
+→ Check Flutter console for detailed error logs
+→ Look for "Health check error:" messages
+
+NEXT STEPS:
+================================================================================
+
+1. Restart backend: start_backend.bat
+2. Add firewall rule: allow_port_8000.bat (Run as Admin)
+3. Test network: test_network_access.bat
+4. Test in browser: http://10.24.124.207:8000/api/health
+5. Reinstall Flutter app: flutter run
+
+If all tests pass, your app will connect successfully!
+
+================================================================================
