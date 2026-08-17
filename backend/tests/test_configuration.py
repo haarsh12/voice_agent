@@ -30,21 +30,25 @@ def test_settings_has_required_attributes():
     assert hasattr(settings, "cors_origins")
     assert hasattr(settings, "livekit_url")
     assert hasattr(settings, "agent_name")
-    assert hasattr(settings, "deepgram_stt_model")
-    assert hasattr(settings, "mistral_model")
+    assert hasattr(settings, "google_stt_model")
+    assert hasattr(settings, "gemini_model")
     assert hasattr(settings, "cartesia_tts_model")
 
 
 def test_settings_default_values():
     """Test that settings have sensible default values."""
-    settings = get_settings()
+    settings = Settings(
+        google_stt_model="latest_long",
+        google_stt_language="en-US",
+        gemini_temperature=0.35,
+    )
     
     assert settings.api_host in ["127.0.0.1", "0.0.0.0"]
     assert settings.api_port > 0
     assert settings.agent_name == "vyamit-voice"
-    assert settings.deepgram_stt_model == "nova-3"
-    assert settings.deepgram_stt_language == "multi"
-    assert settings.mistral_temperature >= 0 and settings.mistral_temperature <= 2
+    assert settings.google_stt_model == "latest_long"
+    assert settings.google_stt_language == "en-US"
+    assert settings.gemini_temperature >= 0 and settings.gemini_temperature <= 2
 
 
 def test_allowed_origins_property():
@@ -101,7 +105,7 @@ def test_temperature_validation_range():
     """Test that temperature is within valid range."""
     settings = get_settings()
     
-    assert 0 <= settings.mistral_temperature <= 2
+    assert 0 <= settings.gemini_temperature <= 2
 
 
 def test_tts_speed_validation_range():

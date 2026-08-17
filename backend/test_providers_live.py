@@ -21,20 +21,23 @@ load_dotenv(_BACKEND_DIRECTORY / ".env.local", override=True)
 from app.agent.providers import create_stt, create_llm, create_tts
 from app.config.settings import get_settings
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
-async def test_deepgram_stt():
-    """Test Deepgram Speech-to-Text connection."""
-    print("\n🎤 Testing Deepgram STT...")
+
+async def test_google_stt():
+    """Test Google Cloud Speech-to-Text connection."""
+    print("\n🎤 Testing Google Cloud STT...")
     try:
         settings = get_settings()
-        if not settings.deepgram_api_key:
-            print("   ❌ DEEPGRAM_API_KEY not set")
+        if not settings.google_application_credentials:
+            print("   ❌ GOOGLE_APPLICATION_CREDENTIALS not set")
             return False
             
         stt = create_stt(settings)
-        print(f"   ✅ Deepgram STT created successfully")
-        print(f"   ℹ️  Model: {settings.deepgram_stt_model}")
-        print(f"   ℹ️  Language: {settings.deepgram_stt_language}")
+        print(f"   ✅ Google Cloud STT created successfully")
+        print(f"   ℹ️  Model: {settings.google_stt_model}")
+        print(f"   ℹ️  Language: {settings.google_stt_language}")
         print(f"   ℹ️  Keyterms: {settings.keyterms}")
         return True
     except Exception as e:
@@ -42,19 +45,20 @@ async def test_deepgram_stt():
         return False
 
 
-async def test_mistral_llm():
-    """Test Mistral AI LLM connection."""
-    print("\n🤖 Testing Mistral AI LLM...")
+async def test_gemini_llm():
+    """Build the Gemini-on-Vertex LLM used by the voice agent."""
+    print("\n🤖 Testing Gemini via Vertex AI...")
     try:
         settings = get_settings()
-        if not settings.mistral_api_key:
-            print("   ❌ MISTRAL_API_KEY not set")
+        if not settings.google_application_credentials:
+            print("   ❌ GOOGLE_APPLICATION_CREDENTIALS not set")
             return False
             
         llm = create_llm(settings)
-        print(f"   ✅ Mistral LLM created successfully")
-        print(f"   ℹ️  Model: {settings.mistral_model}")
-        print(f"   ℹ️  Temperature: {settings.mistral_temperature}")
+        print("   ✅ Gemini Vertex LLM created successfully")
+        print(f"   ℹ️  Model: {settings.gemini_model}")
+        print(f"   ℹ️  Location: {settings.google_cloud_location}")
+        print(f"   ℹ️  Temperature: {settings.gemini_temperature}")
         return True
     except Exception as e:
         print(f"   ❌ Failed: {e}")
@@ -102,24 +106,24 @@ async def test_all_providers():
     print(f"   All Providers Configured: {settings.agent_providers_configured}")
     
     results = {
-        "stt": await test_deepgram_stt(),
-        "llm": await test_mistral_llm(),
+        "stt": await test_google_stt(),
+        "llm": await test_gemini_llm(),
         "tts": await test_cartesia_tts(),
     }
     
     print("\n" + "=" * 70)
     print("RESULTS")
     print("=" * 70)
-    print(f"Deepgram STT: {'✅ PASS' if results['stt'] else '❌ FAIL'}")
-    print(f"Mistral LLM:  {'✅ PASS' if results['llm'] else '❌ FAIL'}")
+    print(f"Google Cloud STT: {'✅ PASS' if results['stt'] else '❌ FAIL'}")
+    print(f"Gemini LLM:   {'✅ PASS' if results['llm'] else '❌ FAIL'}")
     print(f"Cartesia TTS: {'✅ PASS' if results['tts'] else '❌ FAIL'}")
     print("=" * 70)
     
     if all(results.values()):
         print("\n✅ ALL PROVIDERS WORKING!")
         print("\nYour voice assistant is ready to:")
-        print("  1. Listen (Deepgram STT)")
-        print("  2. Think (Mistral AI)")
+        print("  1. Listen (Google Cloud STT)")
+        print("  2. Think (Gemini on Vertex AI)")
         print("  3. Speak (Cartesia TTS)")
         print("\nLanguages supported: English, Hindi, Marathi")
         return 0

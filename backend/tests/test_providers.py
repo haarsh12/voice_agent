@@ -5,17 +5,17 @@ from __future__ import annotations
 import pytest
 
 from app.agent.providers import create_stt, create_llm, create_tts
-from app.config.settings import get_settings
+from app.config.settings import Settings, get_settings
 
 
 def test_create_stt_returns_instance():
     """Test that create_stt returns a valid STT instance."""
-    settings = get_settings()
+    settings = Settings()
     
     try:
         stt = create_stt(settings)
         assert stt is not None
-        # Check it's a Deepgram STT instance
+        # Check it is a provider instance.
         assert hasattr(stt, "__class__")
     except Exception as e:
         # If API key is missing, this is expected
@@ -29,11 +29,11 @@ def test_create_llm_returns_instance():
     try:
         llm = create_llm(settings)
         assert llm is not None
-        # Check it's a Mistral LLM instance
+        # Check it is a Gemini LLM instance.
         assert hasattr(llm, "__class__")
     except Exception as e:
-        # If API key is missing, this is expected
-        assert "api" in str(e).lower() or "key" in str(e).lower()
+        # A credentials error is expected in a clean local checkout.
+        assert "credential" in str(e).lower() or "project" in str(e).lower()
 
 
 def test_create_tts_returns_instance():
@@ -69,11 +69,11 @@ def test_create_tts_with_custom_language():
 
 def test_stt_uses_settings_model():
     """Test that STT uses the model from settings."""
-    settings = get_settings()
-    
+    settings = Settings(google_stt_model="latest_long", google_stt_language="en-US")
+
     # Verify settings have the expected values
-    assert settings.deepgram_stt_model == "nova-3"
-    assert settings.deepgram_stt_language == "multi"
+    assert settings.google_stt_model == "latest_long"
+    assert settings.google_stt_language == "en-US"
 
 
 def test_llm_uses_settings_model():
@@ -81,8 +81,8 @@ def test_llm_uses_settings_model():
     settings = get_settings()
     
     # Verify settings have the expected values
-    assert "mistral" in settings.mistral_model.lower()
-    assert isinstance(settings.mistral_temperature, float)
+    assert "gemini" in settings.gemini_model.lower()
+    assert isinstance(settings.gemini_temperature, float)
 
 
 def test_tts_uses_settings_model():

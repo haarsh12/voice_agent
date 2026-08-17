@@ -35,14 +35,19 @@ class Settings(BaseSettings):
     livekit_api_secret: SecretStr | None = None
     agent_name: str = "vyamit-voice"
 
-    deepgram_api_key: SecretStr | None = None
-    deepgram_stt_model: str = "nova-3"
-    deepgram_stt_language: str = "multi"
-    deepgram_keyterms: str = "Vyamit"
+    # Google Cloud STT configuration
+    google_application_credentials: str | None = None
+    google_stt_language: str = "hi-IN"  # Default to Hindi with multi-language support
+    google_stt_model: str = "latest_long"
+    google_keyterms: str = "Vyamit,व्यामित,नमस्ते,धन्यवाद,मराठी"
 
-    mistral_api_key: SecretStr | None = None
-    mistral_model: str = "mistral-medium-latest"
-    mistral_temperature: float = Field(default=0.35, ge=0, le=2)
+    # Gemini runs through Vertex AI using GOOGLE_APPLICATION_CREDENTIALS. The
+    # project can be inferred from a service-account key, but specifying it is
+    # useful for workload identity and other non-key credential sources.
+    google_cloud_project: str = ""
+    google_cloud_location: str = "global"
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_temperature: float = Field(default=0.35, ge=0, le=2)
 
     cartesia_api_key: SecretStr | None = None
     cartesia_tts_model: str = "sonic-3"
@@ -58,7 +63,7 @@ class Settings(BaseSettings):
 
     @property
     def keyterms(self) -> list[str]:
-        return [term.strip() for term in self.deepgram_keyterms.split(",") if term.strip()]
+        return [term.strip() for term in self.google_keyterms.split(",") if term.strip()]
 
     @property
     def token_issuer_configured(self) -> bool:
@@ -72,8 +77,7 @@ class Settings(BaseSettings):
         return self.token_issuer_configured and all(
             self._has_value(value)
             for value in (
-                self.deepgram_api_key,
-                self.mistral_api_key,
+                self.google_application_credentials,
                 self.cartesia_api_key,
             )
         )
@@ -85,8 +89,7 @@ class Settings(BaseSettings):
 
     def require_agent_providers(self) -> None:
         self.require_token_issuer()
-        self._require("DEEPGRAM_API_KEY", self.deepgram_api_key)
-        self._require("MISTRAL_API_KEY", self.mistral_api_key)
+        self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
         self._require("CARTESIA_API_KEY", self.cartesia_api_key)
 
     @staticmethod

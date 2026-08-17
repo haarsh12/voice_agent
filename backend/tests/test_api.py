@@ -14,8 +14,7 @@ class ApiTests(unittest.TestCase):
             livekit_url="wss://example.livekit.cloud",
             livekit_api_key="test-key",
             livekit_api_secret="test-secret",
-            deepgram_api_key="deepgram",
-            mistral_api_key="mistral",
+            google_application_credentials="service-account.json",
             cartesia_api_key="cartesia",
         )
         app.dependency_overrides[get_settings] = lambda: self.settings

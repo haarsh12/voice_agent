@@ -22,9 +22,9 @@ class SettingsTests(unittest.TestCase):
             livekit_url="wss://example.livekit.cloud",
             livekit_api_key="key",
             livekit_api_secret="secret",
-            deepgram_api_key="deepgram",
-            mistral_api_key="mistral",
+            google_application_credentials="service-account.json",
             cartesia_api_key="cartesia",
+            google_keyterms="Vyamit",
         )
 
         self.assertTrue(settings.agent_providers_configured)
