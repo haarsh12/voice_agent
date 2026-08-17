@@ -7,6 +7,12 @@ backend/.env.local
 frontend/.env
 frontend/.env.local
 
+# Google Cloud credentials - SENSITIVE!
+google-credentials.json
+*-credentials.json
+project-*.json
+service-account*.json
+
 # Python
 __pycache__/
 *.py[cod]
