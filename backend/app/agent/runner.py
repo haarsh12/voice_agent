@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -84,11 +85,14 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
             language,
             len(transcript),
         )
-        # Cartesia applies changed options to the next utterance. Deepgram's
-        # final transcript language therefore selects Hindi/Marathi/English
-        # voice synthesis without rebuilding the session.
+        # Google Cloud TTS: Update voice based on detected language
+        # STT returns language codes: "en", "hi", "mr"
+        # We recreate TTS with appropriate voice for each language
         if is_final and language in {"en", "hi", "mr"}:
-            session.tts.update_options(language=language)
+            logger.info("switching_tts_voice language=%s", language)
+            # Recreate TTS with the detected language
+            new_tts = create_tts(settings, language=language)
+            session.tts = new_tts
 
     @session.on("agent_state_changed")
     def log_agent_state(event: object) -> None:
@@ -129,13 +133,21 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
             )
         )
 
-    await session.start(
-        agent=VyamitAssistant(),
-        room=ctx.room,
-        room_options=room_options,
-    )
-    await ctx.connect()
-    logger.info("session_started room=%s", ctx.room.name)
+    try:
+        await session.start(
+            agent=VyamitAssistant(),
+            room=ctx.room,
+            room_options=room_options,
+        )
+        # Increase connection timeout to 30 seconds for slower networks
+        await asyncio.wait_for(ctx.connect(), timeout=30.0)
+        logger.info("session_started room=%s", ctx.room.name)
+    except asyncio.TimeoutError:
+        logger.error("connection_timeout room=%s - check network/firewall", ctx.room.name)
+        raise
+    except Exception as e:
+        logger.error("connection_error room=%s error=%s", ctx.room.name, str(e))
+        raise
 
 
 if __name__ == "__main__":

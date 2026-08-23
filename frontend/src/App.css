@@ -1,5 +1,21 @@
-.voice-app { width: min(100%, 1040px); min-height: 100svh; margin: 0 auto; padding: 28px; }
-.voice-app__header { display: flex; align-items: center; justify-content: space-between; max-width: 820px; margin: 0 auto 32px; }
+.voice-app { width: 100%; min-height: 100svh; margin: 0 auto; padding: 28px; }
+.voice-app__header { display: flex; align-items: center; justify-content: space-between; max-width: 100%; margin: 0 auto 32px; padding: 0 20px; }
+
+/* Split Screen Layout */
+.split-layout { 
+  display: grid; 
+  grid-template-columns: 40% 60%; 
+  gap: 24px; 
+  height: calc(100vh - 140px);
+  max-width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
 .brand { display: inline-flex; align-items: center; gap: 10px; color: #f8fafc; font-size: 1.1rem; font-weight: 700; letter-spacing: -0.03em; }
 .brand__mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(125,211,252,.3); border-radius: 10px; color: #7dd3fc; background: rgba(14,116,144,.16); }
 
@@ -9,7 +25,7 @@
 .status-chip--warning .status-chip__dot { background: #fbbf24; }
 .status-chip--danger .status-chip__dot { background: #fb7185; }
 
-.voice-stage { display: grid; justify-items: center; max-width: 680px; margin: 0 auto; padding: 46px 20px 32px; border: 1px solid rgba(148,163,184,.12); border-radius: 28px; background: radial-gradient(circle at 50% 16%, rgba(14,116,144,.2), transparent 42%), rgba(15,23,42,.55); box-shadow: 0 24px 70px rgba(2,6,23,.36); }
+.voice-stage { display: grid; justify-items: center; max-width: 100%; height: 100%; margin: 0; padding: 46px 20px 32px; border: 1px solid rgba(148,163,184,.12); border-radius: 28px; background: radial-gradient(circle at 50% 16%, rgba(14,116,144,.2), transparent 42%), rgba(15,23,42,.55); box-shadow: 0 24px 70px rgba(2,6,23,.36); overflow-y: auto; }
 .voice-orb { display: grid; width: 200px; height: 200px; place-items: center; border: 1px solid rgba(125,211,252,.22); border-radius: 50%; background: radial-gradient(circle, rgba(56,189,248,.22), rgba(8,47,73,.1) 57%, transparent 58%); transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease; }
 .voice-orb--listening, .voice-orb--user-speaking, .voice-orb--agent-speaking, .voice-orb--thinking { border-color: rgba(94,234,212,.62); box-shadow: 0 0 0 13px rgba(45,212,191,.06), 0 0 60px rgba(56,189,248,.14); }
 .voice-orb--user-speaking { transform: scale(1.03); }
@@ -47,13 +63,51 @@ button:disabled { cursor: wait; opacity: .66; }
 .input-meter__inactive { color: #64748b; font-size: .8rem; }
 .error-banner { display: flex; width: min(100%, 470px); align-items: flex-start; gap: 9px; margin-top: 18px; padding: 12px 14px; border: 1px solid rgba(251,113,133,.32); border-radius: 12px; color: #fecdd3; background: rgba(159,18,57,.15); font-size: .82rem; text-align: left; }
 
-.transcript-panel { width: min(100%, 680px); margin: 22px auto 0; padding: 24px; border: 1px solid rgba(148,163,184,.12); border-radius: 20px; background: rgba(15,23,42,.45); }
+.transcript-panel { 
+  width: 100%; 
+  height: 100%;
+  margin: 0; 
+  padding: 24px; 
+  border: 1px solid rgba(148,163,184,.12); 
+  border-radius: 20px; 
+  background: rgba(15,23,42,.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.transcript-scroll-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 16px;
+  padding-right: 8px;
+}
+
+/* Custom scrollbar for transcript */
+.transcript-scroll-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.transcript-scroll-container::-webkit-scrollbar-track {
+  background: rgba(15,23,42,.3);
+  border-radius: 4px;
+}
+
+.transcript-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(125,211,252,.3);
+  border-radius: 4px;
+}
+
+.transcript-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(125,211,252,.5);
+}
 .transcript-panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .transcript-panel h2 { margin: 0; color: #e2e8f0; font-size: 1rem; letter-spacing: -.025em; }
 .live-indicator { padding: 5px 8px; border-radius: 999px; color: #5eead4; background: rgba(45,212,191,.1); font-size: .68rem; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; }
 .transcript-panel__empty { margin: 24px 0 4px; color: #64748b; font-size: .9rem; }
-.transcript-list { display: grid; gap: 14px; margin: 24px 0 0; padding: 0; list-style: none; }
-.transcript-entry { max-width: 85%; padding: 12px 14px; border-radius: 14px; }
+.transcript-list { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.transcript-entry { max-width: 85%; padding: 12px 14px; border-radius: 14px; word-wrap: break-word; }
 .transcript-entry--user { justify-self: end; color: #dbeafe; background: rgba(30,64,175,.22); }
 .transcript-entry--assistant { justify-self: start; color: #d1fae5; background: rgba(6,95,70,.2); }
 .transcript-entry__role { display: block; margin-bottom: 4px; color: #7dd3fc; font-size: .66rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
@@ -61,14 +115,28 @@ button:disabled { cursor: wait; opacity: .66; }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@media (max-width: 1024px) {
+  .split-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    gap: 22px;
+  }
+  
+  .transcript-panel {
+    min-height: 400px;
+    max-height: 600px;
+  }
+}
+
 @media (max-width: 640px) {
   .voice-app { padding: 18px; }
-  .voice-app__header { margin-bottom: 22px; }
+  .voice-app__header { margin-bottom: 22px; padding: 0; }
+  .split-layout { gap: 18px; }
   .voice-stage { padding: 38px 16px 26px; border-radius: 22px; }
   .voice-orb { width: 176px; height: 176px; }
   .voice-orb__core { width: 124px; height: 124px; }
   .input-meter { align-items: flex-start; flex-direction: column; gap: 9px; }
   .user-visualizer { width: 100%; }
-  .transcript-panel { padding: 18px; }
+  .transcript-panel { padding: 18px; min-height: 350px; }
   .transcript-entry { max-width: 94%; }
 }

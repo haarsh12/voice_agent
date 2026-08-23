@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from google.genai.types import HttpOptions
-from livekit.plugins import cartesia, google
+from livekit.plugins import google
 
 from app.config.settings import Settings
 from app.services.gemini import load_vertex_authentication
@@ -36,6 +36,7 @@ def create_stt(settings: Settings) -> google.STT:
         model=settings.google_stt_model,
         spoken_punctuation=True,
         keywords=keywords,
+        credentials_file=settings.google_application_credentials,
     )
 
 
@@ -54,12 +55,60 @@ def create_llm(settings: Settings) -> google.LLM:
     )
 
 
-def create_tts(settings: Settings, *, language: str | None = None) -> cartesia.TTS:
-    """Create Cartesia Sonic; language may be updated between user turns."""
-
-    return cartesia.TTS(
-        model=settings.cartesia_tts_model,
-        voice=settings.cartesia_voice_id,
-        language=language or settings.cartesia_tts_language,
-        speed=settings.cartesia_tts_speed,
+def create_tts(settings: Settings, *, language: str | None = None) -> google.TTS:
+    """Create Google Cloud TTS with Chirp 3 HD voices for streaming.
+    
+    **IMPORTANT**: Only Chirp 3: HD voices support streaming synthesis in LiveKit!
+    Neural2 and Wavenet voices do NOT work with streaming.
+    
+    Voice Selection (Chirp 3: HD only):
+    - Hindi (hi/hi-IN): hi-IN-Chirp3-HD-Charon (Female, natural)
+    - English (en): en-US-Chirp3-HD-Charon (Female, natural)
+    - Multi-language support with automatic switching
+    
+    Args:
+        settings: Application settings with Google Cloud credentials
+        language: Language code (hi, mr, en) for voice selection
+    
+    Returns:
+        Google Cloud TTS instance configured with Chirp 3: HD voice
+    """
+    
+    # Map language codes to Chirp 3: HD voices
+    # Chirp 3: HD voice naming: <locale>-Chirp3-HD-<character>
+    # Available characters: Charon, Puck, Kore, Fenrir, Aoede
+    voice_map = {
+        "hi": "hi-IN-Chirp3-HD-Charon",      # Hindi Female Chirp3
+        "hi-IN": "hi-IN-Chirp3-HD-Charon",
+        "mr": "hi-IN-Chirp3-HD-Charon",      # Use Hindi for Marathi (Chirp supports code-switching)
+        "mr-IN": "hi-IN-Chirp3-HD-Charon",
+        "en": "en-US-Chirp3-HD-Charon",      # English Female Chirp3
+        "en-IN": "en-US-Chirp3-HD-Charon",   # Use US English (sounds natural)
+        "en-US": "en-US-Chirp3-HD-Charon",
+    }
+    
+    # Language code mapping for the `language` parameter
+    language_map = {
+        "hi": "hi-IN",
+        "mr": "hi-IN",  # Chirp 3 handles code-switching
+        "en": "en-US",
+        "hi-IN": "hi-IN",
+        "mr-IN": "hi-IN",
+        "en-IN": "en-US",
+        "en-US": "en-US",
+    }
+    
+    # Use provided language or default from settings
+    lang_code = language or settings.google_tts_language
+    selected_voice_name = voice_map.get(lang_code, "hi-IN-Chirp3-HD-Charon")
+    selected_language = language_map.get(lang_code, "hi-IN")
+    
+    return google.TTS(
+        language=selected_language,
+        voice_name=selected_voice_name,
+        model_name="chirp_3",  # REQUIRED for Chirp 3: HD voices
+        speaking_rate=settings.google_tts_speed,
+        pitch=settings.google_tts_pitch,
+        credentials_file=settings.google_application_credentials,
+        use_streaming=True,  # Enable streaming synthesis
     )

@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_temperature: float = Field(default=0.35, ge=0, le=2)
 
+    # Google Cloud TTS configuration for natural Hindi/Marathi/English voices
+    google_tts_language: str = "hi-IN"  # Default to Hindi
+    google_tts_voice: str = "hi-IN-Neural2-A"  # High-quality Neural2 voice
+    google_tts_speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    google_tts_pitch: float = Field(default=0.0, ge=-20.0, le=20.0)
+    
+    # Optional: Cartesia TTS (kept for fallback/comparison)
     cartesia_api_key: SecretStr | None = None
     cartesia_tts_model: str = "sonic-3"
     cartesia_voice_id: str = "f786b574-daa5-4673-aa0c-cbe3e8534c02"
@@ -78,7 +85,7 @@ class Settings(BaseSettings):
             self._has_value(value)
             for value in (
                 self.google_application_credentials,
-                self.cartesia_api_key,
+                # Google TTS uses same credentials as STT/Gemini
             )
         )
 
@@ -90,7 +97,6 @@ class Settings(BaseSettings):
     def require_agent_providers(self) -> None:
         self.require_token_issuer()
         self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
-        self._require("CARTESIA_API_KEY", self.cartesia_api_key)
 
     @staticmethod
     def _require(name: str, value: str | SecretStr | None) -> None:

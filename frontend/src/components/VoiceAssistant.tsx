@@ -212,88 +212,90 @@ export function VoiceAssistant({ session }: VoiceAssistantProps) {
         <StatusChip state={voiceState} />
       </header>
 
-      <section className="voice-stage" aria-label="Vyamit voice session">
-        <div className={`voice-orb voice-orb--${voiceState}`}>
-          <div className="voice-orb__core">
-            {agent.microphoneTrack ? (
-              <BarVisualizer
-                barCount={9}
-                className="agent-visualizer"
-                options={{ maxHeight: 86, minHeight: 16 }}
-                state={agent.state}
-                track={agent.microphoneTrack}
-              />
-            ) : (
-              <Volume2 size={42} strokeWidth={1.35} aria-hidden="true" />
-            )}
+      <div className="split-layout">
+        <section className="voice-stage" aria-label="Vyamit voice session">
+          <div className={`voice-orb voice-orb--${voiceState}`}>
+            <div className="voice-orb__core">
+              {agent.microphoneTrack ? (
+                <BarVisualizer
+                  barCount={9}
+                  className="agent-visualizer"
+                  options={{ maxHeight: 86, minHeight: 16 }}
+                  state={agent.state}
+                  track={agent.microphoneTrack}
+                />
+              ) : (
+                <Volume2 size={42} strokeWidth={1.35} aria-hidden="true" />
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="voice-stage__copy">
-          <p className="eyebrow">Realtime voice assistant</p>
-          <h1>{stateDetails.label}</h1>
-          <p>{stateDetails.description}</p>
-        </div>
+          <div className="voice-stage__copy">
+            <p className="eyebrow">Realtime voice assistant</p>
+            <h1>{stateDetails.label}</h1>
+            <p>{stateDetails.description}</p>
+          </div>
 
-        {!session.isConnected && (
-          <p className={`service-notice service-notice--${serviceReadiness}`} role="status">
-            {serviceReadiness === 'ready' && <span className="service-notice__dot" aria-hidden="true" />}
-            {readinessMessage}
-          </p>
-        )}
+          {!session.isConnected && (
+            <p className={`service-notice service-notice--${serviceReadiness}`} role="status">
+              {serviceReadiness === 'ready' && <span className="service-notice__dot" aria-hidden="true" />}
+              {readinessMessage}
+            </p>
+          )}
 
-        <div className="controls" aria-label="Voice controls">
-          {session.isConnected ? (
-            <>
+          <div className="controls" aria-label="Voice controls">
+            {session.isConnected ? (
+              <>
+                <button
+                  aria-label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                  className={`round-button ${isMicrophoneEnabled ? 'round-button--active' : ''}`}
+                  onClick={() => void toggleMicrophone()}
+                  type="button"
+                >
+                  {isMicrophoneEnabled ? <Mic size={21} /> : <MicOff size={21} />}
+                </button>
+                <button className="disconnect-button" onClick={() => void disconnect()} type="button">
+                  <WifiOff size={18} />
+                  Disconnect
+                </button>
+              </>
+            ) : (
               <button
-                aria-label={isMicrophoneEnabled ? 'Mute microphone' : 'Unmute microphone'}
-                className={`round-button ${isMicrophoneEnabled ? 'round-button--active' : ''}`}
-                onClick={() => void toggleMicrophone()}
+                className="connect-button"
+                disabled={isStarting || serviceReadiness === 'offline'}
+                onClick={() => void connect()}
                 type="button"
               >
-                {isMicrophoneEnabled ? <Mic size={21} /> : <MicOff size={21} />}
+                {isStarting ? <RefreshCw className="spin" size={18} /> : <Mic size={18} />}
+                {isStarting ? 'Connecting…' : serviceReadiness === 'ready' ? 'Start conversation' : 'Connect to voice assistant'}
               </button>
-              <button className="disconnect-button" onClick={() => void disconnect()} type="button">
-                <WifiOff size={18} />
-                Disconnect
-              </button>
-            </>
-          ) : (
-            <button
-              className="connect-button"
-              disabled={isStarting || serviceReadiness === 'offline'}
-              onClick={() => void connect()}
-              type="button"
-            >
-              {isStarting ? <RefreshCw className="spin" size={18} /> : <Mic size={18} />}
-              {isStarting ? 'Connecting…' : serviceReadiness === 'ready' ? 'Start conversation' : 'Connect to voice assistant'}
-            </button>
-          )}
-        </div>
-
-        <div className="input-meter" aria-live="polite">
-          <span className="input-meter__label">Your microphone</span>
-          {session.local.microphoneTrack ? (
-            <BarVisualizer
-              barCount={18}
-              className="user-visualizer"
-              options={{ maxHeight: 68, minHeight: 8 }}
-              track={session.local.microphoneTrack}
-            />
-          ) : (
-            <span className="input-meter__inactive">Microphone is off</span>
-          )}
-        </div>
-
-        {(error || agentFailure) && (
-          <div className="error-banner" role="alert">
-            <AlertCircle size={19} />
-            <span>{error || agentFailure}</span>
+            )}
           </div>
-        )}
-      </section>
 
-      <TranscriptPanel entries={transcriptEntries} />
+          <div className="input-meter" aria-live="polite">
+            <span className="input-meter__label">Your microphone</span>
+            {session.local.microphoneTrack ? (
+              <BarVisualizer
+                barCount={18}
+                className="user-visualizer"
+                options={{ maxHeight: 68, minHeight: 8 }}
+                track={session.local.microphoneTrack}
+              />
+            ) : (
+              <span className="input-meter__inactive">Microphone is off</span>
+            )}
+          </div>
+
+          {(error || agentFailure) && (
+            <div className="error-banner" role="alert">
+              <AlertCircle size={19} />
+              <span>{error || agentFailure}</span>
+            </div>
+          )}
+        </section>
+
+        <TranscriptPanel entries={transcriptEntries} />
+      </div>
     </main>
   )
 }
