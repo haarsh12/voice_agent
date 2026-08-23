@@ -61,10 +61,9 @@ def create_tts(settings: Settings, *, language: str | None = None) -> google.TTS
     **IMPORTANT**: Only Chirp 3: HD voices support streaming synthesis in LiveKit!
     Neural2 and Wavenet voices do NOT work with streaming.
     
-    Voice Selection (Chirp 3: HD only):
-    - Hindi (hi/hi-IN): hi-IN-Chirp3-HD-Charon (Female, natural)
-    - English (en): en-US-Chirp3-HD-Charon (Female, natural)
-    - Multi-language support with automatic switching
+    Voice Selection (Chirp 3: HD - Based on Official Google Documentation):
+    Female voices: Kore, Aoede, Despina, Achernar, Callirrhoe, Erinome, etc.
+    Male voices: Charon, Puck, Fenrir, Enceladus, Achird, etc.
     
     Args:
         settings: Application settings with Google Cloud credentials
@@ -74,34 +73,34 @@ def create_tts(settings: Settings, *, language: str | None = None) -> google.TTS
         Google Cloud TTS instance configured with Chirp 3: HD voice
     """
     
-    # Map language codes to Chirp 3: HD voices
+    # Map language codes to Chirp 3: HD FEMALE voices
     # Chirp 3: HD voice naming: <locale>-Chirp3-HD-<character>
-    # Available characters: Charon, Puck, Kore, Fenrir, Aoede
+    # Using Kore (Female) as default voice across all languages
     voice_map = {
-        "hi": "hi-IN-Chirp3-HD-Charon",      # Hindi Female Chirp3
-        "hi-IN": "hi-IN-Chirp3-HD-Charon",
-        "mr": "hi-IN-Chirp3-HD-Charon",      # Use Hindi for Marathi (Chirp supports code-switching)
-        "mr-IN": "hi-IN-Chirp3-HD-Charon",
-        "en": "en-US-Chirp3-HD-Charon",      # English Female Chirp3
-        "en-IN": "en-US-Chirp3-HD-Charon",   # Use US English (sounds natural)
-        "en-US": "en-US-Chirp3-HD-Charon",
+        "hi": "hi-IN-Chirp3-HD-Kore",       # Hindi Female
+        "hi-IN": "hi-IN-Chirp3-HD-Kore",
+        "mr": "mr-IN-Chirp3-HD-Kore",       # Marathi Female (Native support!)
+        "mr-IN": "mr-IN-Chirp3-HD-Kore",
+        "en": "en-US-Chirp3-HD-Kore",       # English Female
+        "en-IN": "en-US-Chirp3-HD-Kore",
+        "en-US": "en-US-Chirp3-HD-Kore",
     }
     
     # Language code mapping for the `language` parameter
     language_map = {
         "hi": "hi-IN",
-        "mr": "hi-IN",  # Chirp 3 handles code-switching
+        "mr": "mr-IN",       # Marathi has native support!
         "en": "en-US",
         "hi-IN": "hi-IN",
-        "mr-IN": "hi-IN",
+        "mr-IN": "mr-IN",
         "en-IN": "en-US",
         "en-US": "en-US",
     }
     
     # Use provided language or default from settings
     lang_code = language or settings.google_tts_language
-    selected_voice_name = voice_map.get(lang_code, "hi-IN-Chirp3-HD-Charon")
-    selected_language = language_map.get(lang_code, "hi-IN")
+    selected_voice_name = voice_map.get(lang_code, "mr-IN-Chirp3-HD-Kore")
+    selected_language = language_map.get(lang_code, "mr-IN")
     
     return google.TTS(
         language=selected_language,
