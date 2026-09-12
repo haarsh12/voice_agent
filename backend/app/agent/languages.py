@@ -7,7 +7,7 @@ rather than being scattered through the room and provider code.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from dataclasses import dataclass
 
 
 SUPPORTED_LANGUAGE_CODES: tuple[str, ...] = (
@@ -36,8 +36,8 @@ LANGUAGE_NAMES: dict[str, str] = {
     "pa-IN": "Punjabi",
 }
 
-# The UI keeps the familiar pa-IN identifier. Chirp 3 uses the more specific
-# Gurmukhi identifier only when that model is explicitly selected.
+# The UI keeps the familiar pa-IN identifier. Google Speech-to-Text V1 uses
+# the more specific Gurmukhi identifier for Punjabi.
 _ALIASES: dict[str, str] = {
     "hi": "hi-IN",
     "mr": "mr-IN",
@@ -61,6 +61,34 @@ CHIRP3_VOICES: dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class STTProfile:
+    """A Google STT V1 configuration known to support one UI language."""
+
+    locale: str
+    model: str
+
+
+# Do not infer these values from the browser locale.  Google publishes model
+# support per locale, and `latest_long` is *not* available for Bengali,
+# Gujarati, or Punjabi.  Sending an unsupported locale/model combination
+# terminates the realtime STT stream, which in turn leaves the UI with no
+# transcript or reply.  `default` is the documented compatible V1 model for
+# those three languages.  Punjabi also requires its script-specific locale.
+STT_PROFILES: dict[str, STTProfile] = {
+    "hi-IN": STTProfile(locale="hi-IN", model="latest_long"),
+    "mr-IN": STTProfile(locale="mr-IN", model="latest_long"),
+    "en-IN": STTProfile(locale="en-IN", model="latest_long"),
+    "ta-IN": STTProfile(locale="ta-IN", model="latest_long"),
+    "te-IN": STTProfile(locale="te-IN", model="latest_long"),
+    "kn-IN": STTProfile(locale="kn-IN", model="latest_long"),
+    "ml-IN": STTProfile(locale="ml-IN", model="latest_long"),
+    "gu-IN": STTProfile(locale="gu-IN", model="default"),
+    "bn-IN": STTProfile(locale="bn-IN", model="default"),
+    "pa-IN": STTProfile(locale="pa-Guru-IN", model="default"),
+}
+
+
 def normalize_language(value: object) -> str | None:
     """Return a supported UI language code, or ``None`` for untrusted input."""
 
@@ -72,19 +100,18 @@ def normalize_language(value: object) -> str | None:
     return _ALIASES.get(candidate)
 
 
-def stt_languages_for_model(preferred_language: str, model: str) -> Sequence[str]:
-    """Return one explicit, valid locale for the selected recognizer model.
+def stt_profile_for_language(language: str) -> STTProfile:
+    """Return the supported, single-language STT profile for ``language``.
 
-    Auto-detection is intentionally disabled. One selected language is the
-    reliable mode supported by the selector and avoids provider-specific
-    multi-language request limits.
+    Auto-detection is intentionally disabled.  One selected language keeps
+    Google requests within the provider's language limits and makes the
+    resulting transcript match the selected script.
     """
 
-    normalized = normalize_language(preferred_language)
+    normalized = normalize_language(language)
     if normalized is None:
-        raise ValueError("preferred_language must be supported")
-    stt_language = "pa-Guru-IN" if model == "chirp_3" and normalized == "pa-IN" else normalized
-    return [stt_language]
+        raise ValueError("language must be supported")
+    return STT_PROFILES[normalized]
 
 
 def voice_for_language(language: str) -> str:

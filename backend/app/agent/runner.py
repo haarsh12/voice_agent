@@ -175,7 +175,7 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
             return language, language_revision, False
 
         if session.stt is not None:
-            update_stt_language(session.stt, language=language, model=settings.google_stt_model)
+            update_stt_language(session.stt, language=language)
         if session.tts is not None:
             update_tts_language(session.tts, language=language)
 

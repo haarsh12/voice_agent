@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from app.agent.languages import stt_languages_for_model, voice_for_language
+from app.agent.languages import stt_profile_for_language, voice_for_language
 from app.agent.runner import strip_internal_voice_markup
 from app.agent import providers
 from app.api import routes
@@ -24,27 +24,46 @@ async def _collect(*values: str) -> str:
 
 
 def test_all_selector_languages_have_a_matching_stt_and_tts_profile() -> None:
-    expected_stt_codes = {
-        "hi-IN": "hi-IN",
-        "mr-IN": "mr-IN",
-        "en-IN": "en-IN",
-        "ta-IN": "ta-IN",
-        "te-IN": "te-IN",
-        "kn-IN": "kn-IN",
-        "ml-IN": "ml-IN",
-        "gu-IN": "gu-IN",
-        "bn-IN": "bn-IN",
-        "pa-IN": "pa-IN",
+    expected_stt_profiles = {
+        "hi-IN": ("hi-IN", "latest_long"),
+        "mr-IN": ("mr-IN", "latest_long"),
+        "en-IN": ("en-IN", "latest_long"),
+        "ta-IN": ("ta-IN", "latest_long"),
+        "te-IN": ("te-IN", "latest_long"),
+        "kn-IN": ("kn-IN", "latest_long"),
+        "ml-IN": ("ml-IN", "latest_long"),
+        "gu-IN": ("gu-IN", "default"),
+        "bn-IN": ("bn-IN", "default"),
+        "pa-IN": ("pa-Guru-IN", "default"),
     }
 
-    assert {language: list(stt_languages_for_model(language, "latest_long")) for language in expected_stt_codes} == {
-        language: [stt_code] for language, stt_code in expected_stt_codes.items()
-    }
+    assert {
+        language: (profile.locale, profile.model)
+        for language in expected_stt_profiles
+        for profile in [stt_profile_for_language(language)]
+    } == expected_stt_profiles
     assert all(
         voice_for_language(language).startswith(f"{language}-Chirp3-HD-")
-        for language in expected_stt_codes
+        for language in expected_stt_profiles
     )
-    assert stt_languages_for_model("pa-IN", "chirp_3") == ["pa-Guru-IN"]
+
+
+def test_live_stt_switch_updates_model_and_provider_locale() -> None:
+    received: dict[str, object] = {}
+
+    class FakeSTT:
+        def update_options(self, **kwargs: object) -> None:
+            received.update(kwargs)
+
+    providers.update_stt_language(FakeSTT(), language="pa-IN")  # type: ignore[arg-type]
+
+    assert received == {
+        "languages": ["pa-Guru-IN"],
+        "model": "default",
+        "detect_language": False,
+        "punctuate": False,
+        "spoken_punctuation": False,
+    }
 
 
 def test_token_endpoint_uses_livekit_participant_language_attribute(monkeypatch) -> None:
@@ -70,7 +89,7 @@ def test_token_endpoint_uses_livekit_participant_language_attribute(monkeypatch)
     assert received["language"] == "ta-IN"
 
 
-def test_chirp3_stt_does_not_enable_unsupported_spoken_punctuation(monkeypatch) -> None:
+def test_stt_uses_the_selected_language_profile_without_unsupported_punctuation(monkeypatch) -> None:
     received: dict[str, object] = {}
 
     def fake_stt(**kwargs):
@@ -82,7 +101,7 @@ def test_chirp3_stt_does_not_enable_unsupported_spoken_punctuation(monkeypatch) 
         (),
         {
             "google_stt_language": "hi-IN",
-            "google_stt_model": "chirp_3",
+            "google_stt_model": "latest_long",
             "google_stt_location": "us",
             "google_application_credentials": None,
             "keyterms": [],
@@ -90,11 +109,40 @@ def test_chirp3_stt_does_not_enable_unsupported_spoken_punctuation(monkeypatch) 
     )()
     monkeypatch.setattr(providers.google, "STT", fake_stt)
 
-    providers.create_stt(settings, primary_language="ta-IN")
+    providers.create_stt(settings, primary_language="bn-IN")
 
     assert received["spoken_punctuation"] is False
-    assert received["languages"] == ["ta-IN"]
+    assert received["punctuate"] is False
+    assert received["languages"] == ["bn-IN"]
+    assert received["model"] == "default"
     assert received["detect_language"] is False
+
+
+def test_tts_uses_the_selected_locale_and_voice_for_each_future_response(monkeypatch) -> None:
+    received: dict[str, object] = {}
+
+    def fake_tts(**kwargs: object) -> object:
+        received.update(kwargs)
+        return object()
+
+    settings = type(
+        "SpeechSettings",
+        (),
+        {
+            "google_tts_language": "hi-IN",
+            "google_tts_speed": 1.0,
+            "google_tts_pitch": 0.0,
+            "google_application_credentials": None,
+        },
+    )()
+    monkeypatch.setattr(providers.google, "TTS", fake_tts)
+
+    providers.create_tts(settings, language="gu-IN")
+
+    assert received["language"] == "gu-IN"
+    assert received["voice_name"] == "gu-IN-Chirp3-HD-Aoede"
+    assert received["model_name"] == "chirp_3"
+    assert received["use_streaming"] is True
 
 
 def test_internal_reasoning_never_reaches_tts_when_tags_are_streamed_in_pieces() -> None:

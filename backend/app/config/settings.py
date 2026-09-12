@@ -38,8 +38,8 @@ class Settings(BaseSettings):
     # Google Cloud STT configuration
     google_application_credentials: str | None = None
     google_stt_language: str = "hi-IN"
-    # Explicit selected-language recognition is more reliable with the
-    # original V1 recognizer than Chirp 3's constrained multi-language mode.
+    # Fallback model for integrations outside the selector. The live selector
+    # uses the explicit, provider-compatible profile for each language.
     google_stt_model: str = "latest_long"
     google_stt_location: str = "global"
     google_keyterms: str = "Vyamit,व्यामित,नमस्ते,धन्यवाद,मराठी"
@@ -52,7 +52,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_temperature: float = Field(default=0.35, ge=0, le=2)
 
-    # Google Cloud TTS configuration for natural Hindi/Marathi/English voices
+    # Google Cloud TTS defaults. The live selector supplies the locale-specific
+    # Chirp 3 HD voice for every supported language.
     google_tts_language: str = "hi-IN"  # Default to Hindi
     google_tts_voice: str = "hi-IN-Neural2-A"  # High-quality Neural2 voice
     google_tts_speed: float = Field(default=1.0, ge=0.25, le=4.0)

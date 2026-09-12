@@ -7,7 +7,7 @@ from livekit.plugins import google
 
 from app.agent.languages import (
     normalize_language,
-    stt_languages_for_model,
+    stt_profile_for_language,
     voice_for_language,
 )
 from app.config.settings import Settings
@@ -24,13 +24,17 @@ def create_stt(settings: Settings, *, primary_language: str | None = None) -> go
     """Create streaming STT locked to the language selected in the browser."""
 
     selected_language = _resolve_language(primary_language, settings.google_stt_language)
+    profile = stt_profile_for_language(selected_language)
 
     return google.STT(
-        languages=stt_languages_for_model(selected_language, settings.google_stt_model),
-        model=settings.google_stt_model,
+        languages=[profile.locale],
+        model=profile.model,
         location=settings.google_stt_location,
         detect_language=False,
-        punctuate=True,
+        # Several selected-language V1 profiles do not support automatic
+        # punctuation.  Keeping it disabled is preferable to a provider 400
+        # that closes the entire recognition stream.
+        punctuate=False,
         spoken_punctuation=False,
         enable_word_time_offsets=False,
         # Do not pass speech-adaptation/keyterm options in this explicit-
@@ -69,13 +73,17 @@ def create_tts(settings: Settings, *, language: str | None = None) -> google.TTS
     )
 
 
-def update_stt_language(stt: google.STT, *, language: str, model: str) -> str:
+def update_stt_language(stt: google.STT, *, language: str) -> str:
     """Update an active recognizer without interrupting its voice session."""
 
     selected_language = _resolve_language(language, "hi-IN")
+    profile = stt_profile_for_language(selected_language)
     stt.update_options(
-        languages=stt_languages_for_model(selected_language, model),
+        languages=[profile.locale],
+        model=profile.model,
         detect_language=False,
+        punctuate=False,
+        spoken_punctuation=False,
     )
     return selected_language
 
