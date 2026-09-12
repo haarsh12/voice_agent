@@ -25,16 +25,27 @@ def issue_browser_token(
     room_name: str,
     participant_name: str,
     participant_identity: str | None = None,
+    language: str | None = None,
 ) -> IssuedToken:
     """Create a fifteen-minute token and dispatch only this backend's agent.
 
     Agent dispatch is authored by the server instead of trusting arbitrary room
     configuration supplied by a browser request.
+
+    Args:
+        settings: Application settings
+        room_name: LiveKit room name
+        participant_name: Display name for the participant
+        participant_identity: Optional unique identity (generated if not provided)
+        language: Optional language preference (e.g., 'hi-IN', 'mr-IN', 'en-IN')
+                  Passed as participant attribute for agent to use
     """
 
     settings.require_token_issuer()
     identity = participant_identity or f"web-{uuid4().hex}"
-    token = (
+
+    # Build token with language preference in attributes
+    token_builder = (
         api.AccessToken(
             settings.livekit_api_key.get_secret_value(),
             settings.livekit_api_secret.get_secret_value(),
@@ -57,4 +68,10 @@ def issue_browser_token(
             )
         )
     )
-    return IssuedToken(server_url=settings.livekit_url, participant_token=token.to_jwt())
+
+    # Add language preference as participant attribute if provided
+    # This will be accessible in the agent via participant.attributes
+    if language:
+        token_builder = token_builder.with_attributes({"language": language})
+
+    return IssuedToken(server_url=settings.livekit_url, participant_token=token_builder.to_jwt())

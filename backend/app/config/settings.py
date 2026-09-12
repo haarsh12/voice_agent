@@ -37,8 +37,11 @@ class Settings(BaseSettings):
 
     # Google Cloud STT configuration
     google_application_credentials: str | None = None
-    google_stt_language: str = "hi-IN"  # Default to Hindi with multi-language support
+    google_stt_language: str = "hi-IN"
+    # Explicit selected-language recognition is more reliable with the
+    # original V1 recognizer than Chirp 3's constrained multi-language mode.
     google_stt_model: str = "latest_long"
+    google_stt_location: str = "global"
     google_keyterms: str = "Vyamit,व्यामित,नमस्ते,धन्यवाद,मराठी"
 
     # Gemini runs through Vertex AI using GOOGLE_APPLICATION_CREDENTIALS. The
