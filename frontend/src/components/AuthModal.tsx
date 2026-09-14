@@ -2,14 +2,43 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, LoaderCircle, LogIn, MessageCircleMore, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
-import type { MobileAuthIntent } from '../lib/api'
-import type { SahayakProfile } from '../types/api'
+import type { MobileAuthIntent, RegistrationPayload } from '../lib/api'
+import { USER_TYPES, type SahayakProfile, type UserType } from '../types/api'
 
 type AuthModalProps = {
   auth: SahayakAuth
   isOpen: boolean
   onClose: () => void
   onVerified: (profile: SahayakProfile) => void
+}
+
+type RegistrationDraft = {
+  full_name: string
+  state: string
+  district: string
+  village_or_town: string
+  address: string
+  user_type: UserType | ''
+  cooperative_role: string
+}
+
+const emptyRegistration: RegistrationDraft = {
+  full_name: '',
+  state: '',
+  district: '',
+  village_or_town: '',
+  address: '',
+  user_type: '',
+  cooperative_role: '',
+}
+
+const userTypeLabels: Record<UserType, string> = {
+  cooperative_member: 'Cooperative member',
+  farmer: 'Farmer',
+  pacs_member: 'PACS member',
+  cooperative_official: 'Cooperative official',
+  rural_stakeholder: 'Rural stakeholder',
+  other: 'Other rural service user',
 }
 
 function IndianNumber({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -35,9 +64,10 @@ function IndianNumber({ value, onChange }: { value: string; onChange: (value: st
 }
 
 export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps) {
-  const [step, setStep] = useState<'choice' | 'mobile' | 'otp'>('choice')
+  const [step, setStep] = useState<'choice' | 'login' | 'register' | 'otp'>('choice')
   const [intent, setIntent] = useState<MobileAuthIntent | null>(null)
   const [mobile, setMobile] = useState('')
+  const [registration, setRegistration] = useState<RegistrationDraft>(emptyRegistration)
   const [otp, setOtp] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -55,6 +85,7 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
     setStep('choice')
     setIntent(null)
     setMobile('')
+    setRegistration(emptyRegistration)
     setOtp('')
     setError(null)
     setNotice(null)
@@ -64,42 +95,48 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
 
   if (!isOpen) return null
 
-  const accountCopy = intent === 'register'
-    ? {
-        kicker: 'Create account',
-        title: 'Create your Sahayak account.',
-        description: 'Start with your mobile number, then set up your cooperative support profile.',
-        button: 'Create account with mobile',
-      }
-    : {
-        kicker: 'Log in',
-        title: 'Welcome back.',
-        description: 'Use the mobile number linked to your Sahayak account.',
-        button: 'Continue to log in',
-      }
-
   function chooseIntent(nextIntent: MobileAuthIntent): void {
     setIntent(nextIntent)
-    setStep('mobile')
+    setStep(nextIntent === 'register' ? 'register' : 'login')
     setError(null)
     setNotice(null)
   }
 
-  async function sendOtp(event?: FormEvent<HTMLFormElement>): Promise<void> {
+  function updateRegistration(field: keyof RegistrationDraft, value: string): void {
+    setRegistration((current) => ({ ...current, [field]: value }))
+  }
+
+  function registrationPayload(): RegistrationPayload | null {
+    const requiredFields = [
+      registration.full_name,
+      registration.state,
+      registration.district,
+      registration.village_or_town,
+    ]
+    if (requiredFields.some((field) => field.trim().length < 2) || !registration.user_type) return null
+    return {
+      full_name: registration.full_name.trim(),
+      state: registration.state.trim(),
+      district: registration.district.trim(),
+      village_or_town: registration.village_or_town.trim(),
+      user_type: registration.user_type,
+      ...(registration.address.trim() ? { address: registration.address.trim() } : {}),
+      ...(registration.cooperative_role.trim() ? { cooperative_role: registration.cooperative_role.trim() } : {}),
+    }
+  }
+
+  async function requestOtp(activeIntent: MobileAuthIntent, event?: FormEvent<HTMLFormElement>): Promise<void> {
     event?.preventDefault()
     setError(null)
     setNotice(null)
-    if (!intent) {
-      setStep('choice')
-      return
-    }
     if (mobile.length !== 10) {
       setError('Enter your 10-digit mobile number.')
       return
     }
     setIsSubmitting(true)
     try {
-      await auth.requestOtp(mobile, intent)
+      await auth.requestOtp(mobile, activeIntent)
+      setIntent(activeIntent)
       setStep('otp')
       setSecondsLeft(30)
       setNotice('A 6-digit OTP has been sent to your mobile number.')
@@ -110,16 +147,35 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
     }
   }
 
+  async function continueRegistration(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault()
+    if (!registrationPayload()) {
+      setError('Complete your name, location and service role before continuing.')
+      return
+    }
+    await requestOtp('register')
+  }
+
   async function confirmOtp(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     setError(null)
+    const completedRegistration = intent === 'register' ? registrationPayload() : undefined
+    if (!intent) {
+      setStep('choice')
+      return
+    }
+    if (intent === 'register' && !completedRegistration) {
+      setStep('register')
+      setError('Your profile details need to be completed before verification.')
+      return
+    }
     if (otp.length !== 6) {
       setError('Enter the 6-digit OTP.')
       return
     }
     setIsSubmitting(true)
     try {
-      const profile = await auth.verifyOtp(mobile, otp)
+      const profile = await auth.verifyOtp(mobile, otp, intent, completedRegistration ?? undefined)
       onVerified(profile)
       onClose()
     } catch (caughtError) {
@@ -169,62 +225,66 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
               </button>
             </div>
           </>
-        ) : step === 'mobile' ? (
+        ) : step === 'login' ? (
           <>
-            <button className="auth-modal__back" onClick={backToChoice} type="button">
-              <ArrowLeft size={16} /> Back to options
-            </button>
+            <button className="auth-modal__back" onClick={backToChoice} type="button"><ArrowLeft size={16} /> Back to options</button>
             <div className="auth-modal__intro">
-              <p className="section-kicker">{accountCopy.kicker}</p>
-              <h2 id="auth-title">{accountCopy.title}</h2>
-              <p>{accountCopy.description}</p>
+              <p className="section-kicker">Log in</p>
+              <h2 id="auth-title">Welcome back.</h2>
+              <p>Use the mobile number linked to your Sahayak account.</p>
             </div>
-            <form className="auth-form" onSubmit={(event) => void sendOtp(event)}>
+            <form className="auth-form" onSubmit={(event) => void requestOtp('login', event)}>
               <IndianNumber onChange={setMobile} value={mobile} />
               <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">
                 {isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}
-                {isSubmitting ? 'Sending OTP…' : accountCopy.button}
+                {isSubmitting ? 'Sending OTP…' : 'Continue to log in'}
+              </button>
+            </form>
+          </>
+        ) : step === 'register' ? (
+          <>
+            <button className="auth-modal__back" onClick={backToChoice} type="button"><ArrowLeft size={16} /> Back to options</button>
+            <div className="auth-modal__intro auth-modal__intro--register">
+              <p className="section-kicker">Create account · Step 1 of 2</p>
+              <h2 id="auth-title">Tell us how Sahayak can support you.</h2>
+              <p>Complete your profile now. Your account is created only after your mobile number is verified.</p>
+            </div>
+            <form className="auth-form auth-form--registration" onSubmit={(event) => void continueRegistration(event)}>
+              <div className="auth-form__grid">
+                <IndianNumber onChange={setMobile} value={mobile} />
+                <label className="auth-text-field"><span>Full name</span><input autoComplete="name" onChange={(event) => updateRegistration('full_name', event.target.value)} placeholder="Your full name" required value={registration.full_name} /></label>
+                <label className="auth-text-field"><span>State</span><input autoComplete="address-level1" onChange={(event) => updateRegistration('state', event.target.value)} placeholder="e.g. Maharashtra" required value={registration.state} /></label>
+                <label className="auth-text-field"><span>District / city</span><input autoComplete="address-level2" onChange={(event) => updateRegistration('district', event.target.value)} placeholder="Your district or city" required value={registration.district} /></label>
+                <label className="auth-text-field"><span>Village / town</span><input onChange={(event) => updateRegistration('village_or_town', event.target.value)} placeholder="Your village or town" required value={registration.village_or_town} /></label>
+                <label className="auth-text-field"><span>How do you use Sahayak?</span><select onChange={(event) => updateRegistration('user_type', event.target.value)} required value={registration.user_type}><option value="">Choose your role</option>{USER_TYPES.map((type) => <option key={type} value={type}>{userTypeLabels[type]}</option>)}</select></label>
+                <label className="auth-text-field"><span>Cooperative role <em>optional</em></span><input onChange={(event) => updateRegistration('cooperative_role', event.target.value)} placeholder="e.g. Secretary or member" value={registration.cooperative_role} /></label>
+                <label className="auth-text-field"><span>Address <em>optional</em></span><input autoComplete="street-address" onChange={(event) => updateRegistration('address', event.target.value)} placeholder="House, street or landmark" value={registration.address} /></label>
+              </div>
+              <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">
+                {isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}
+                {isSubmitting ? 'Sending OTP…' : 'Continue to phone verification'}
               </button>
             </form>
           </>
         ) : (
           <>
-            <button className="auth-modal__back" onClick={() => { setStep('mobile'); setError(null); setNotice(null) }} type="button">
-              <ArrowLeft size={16} /> Change mobile number
-            </button>
+            <button className="auth-modal__back" onClick={() => { setStep(intent === 'register' ? 'register' : 'login'); setError(null); setNotice(null) }} type="button"><ArrowLeft size={16} /> Edit your details</button>
             <div className="auth-modal__intro">
-              <p className="section-kicker">Verify your number</p>
+              <p className="section-kicker">Step 2 of 2 · Verify your number</p>
               <h2 id="auth-title">Enter the 6-digit OTP.</h2>
-              <p>We sent it to +91 {mobile}. Check your messages, then enter the code below.</p>
+              <p>We sent it to +91 {mobile}. Once verified, your secure Sahayak account will be ready.</p>
             </div>
             <form className="auth-form" onSubmit={(event) => void confirmOtp(event)}>
-              <label className="otp-field">
-                <span>One-time password</span>
-                <input
-                  aria-label="6-digit one-time password"
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  maxLength={6}
-                  onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="••••••"
-                  required
-                  value={otp}
-                />
-              </label>
-              <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">
-                {isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}
-                {isSubmitting ? 'Verifying…' : 'Verify and continue'}
-              </button>
-              <button className="text-action" disabled={secondsLeft > 0 || isSubmitting} onClick={() => void sendOtp()} type="button">
-                {secondsLeft ? 'Resend OTP in ' + secondsLeft + 's' : 'Resend OTP'}
-              </button>
+              <label className="otp-field"><span>One-time password</span><input aria-label="6-digit one-time password" autoComplete="one-time-code" inputMode="numeric" maxLength={6} onChange={(event) => setOtp(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" required value={otp} /></label>
+              <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">{isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}{isSubmitting ? 'Verifying…' : intent === 'register' ? 'Verify and create account' : 'Verify and log in'}</button>
+              <button className="text-action" disabled={secondsLeft > 0 || isSubmitting} onClick={() => intent && void requestOtp(intent)} type="button">{secondsLeft ? 'Resend OTP in ' + secondsLeft + 's' : 'Resend OTP'}</button>
             </form>
           </>
         )}
 
         {error && <p className="form-feedback form-feedback--error" role="alert">{error}</p>}
         {notice && <p className="form-feedback form-feedback--success" role="status">{notice}</p>}
-        <footer className="auth-modal__footer"><ShieldCheck size={16} /> Your mobile number is used only to secure your account.</footer>
+        <footer className="auth-modal__footer"><ShieldCheck size={16} /> Your phone and profile are used only to provide your support services.</footer>
       </section>
     </div>
   )

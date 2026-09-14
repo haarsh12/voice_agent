@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import secrets
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -101,11 +102,11 @@ class Settings(BaseSettings):
             return None
         return (
             r"^https?://(?:"
-            r"localhost|127\\.0\\.0\\.1|\\[::1\\]|"
-            r"10(?:\\.\\d{1,3}){3}|"
-            r"192\\.168(?:\\.\\d{1,3}){2}|"
-            r"172\\.(?:1[6-9]|2\\d|3[0-1])(?:\\.\\d{1,3}){2}"
-            r")(?::\\d{1,5})?$"
+            r"localhost|127\.0\.0\.1|\[::1\]|"
+            r"10(?:\.\d{1,3}){3}|"
+            r"192\.168(?:\.\d{1,3}){2}|"
+            r"172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2}"
+            r")(?::\d{1,5})?$"
         )
 
     @property
@@ -115,7 +116,10 @@ class Settings(BaseSettings):
     @property
     def async_database_url(self) -> str | None:
         if self.database_url is None:
-            return None
+            # The prototype should work immediately for local demonstrations
+            # without provisioning hosted infrastructure. This file is ignored
+            # by Git and is never used in production.
+            return "sqlite+aiosqlite:///./sahayak-dev.db" if not self.is_production else None
         value = self.database_url.get_secret_value().strip()
         if value.startswith("postgres://"):
             value = "postgresql://" + value.removeprefix("postgres://")
@@ -147,6 +151,8 @@ class Settings(BaseSettings):
         if not self.is_production:
             return
         self.require_jwt_secret()
+        if not self.async_database_url:
+            raise MissingConfigurationError("DATABASE_URL must be configured in production.")
         if self.otp_demo_mode:
             raise MissingConfigurationError("OTP_DEMO_MODE must be disabled in production.")
         if not self.allowed_origins or any(not origin.startswith("https://") for origin in self.allowed_origins):
@@ -200,4 +206,12 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a single immutable-ish settings instance per process."""
 
-    return Settings()
+    settings = Settings()
+    # A process-local signing key makes the zero-configuration demonstration
+    # usable without accidentally committing a development secret. Restarting
+    # the dev server deliberately invalidates old demo sessions.
+    if not settings.is_production and (
+        settings.jwt_secret_key is None or not settings.jwt_secret_key.get_secret_value().strip()
+    ):
+        settings.jwt_secret_key = SecretStr(secrets.token_urlsafe(48))
+    return settings

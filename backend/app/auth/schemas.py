@@ -40,8 +40,38 @@ class OTPRequest(BaseModel):
         return normalise_indian_phone(value)
 
 
+class RegistrationProfile(BaseModel):
+    """The information collected before a new account's phone verification."""
+
+    full_name: str = Field(min_length=2, max_length=120)
+    state: str = Field(min_length=2, max_length=100)
+    district: str = Field(min_length=2, max_length=120)
+    village_or_town: str = Field(min_length=2, max_length=120)
+    user_type: UserType
+    address: str | None = Field(default=None, max_length=500)
+    cooperative_role: str | None = Field(default=None, max_length=120)
+
+    @field_validator(
+        "full_name",
+        "state",
+        "district",
+        "village_or_town",
+        "address",
+        "cooperative_role",
+    )
+    @classmethod
+    def strip_registration_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("This field cannot be empty.")
+        return cleaned
+
+
 class VerifyOTPRequest(OTPRequest):
     otp_code: str = Field(pattern=r"^\d{6}$")
+    registration: RegistrationProfile | None = None
 
 
 class ProfileUpdateRequest(BaseModel):

@@ -122,3 +122,43 @@ def test_otp_codes_are_not_stored_in_plaintext(auth_client: TestClient) -> None:
     stored = asyncio.run(load_code())
     assert stored.code_hash != "624251"
     assert "624251" not in stored.code_hash
+
+
+def test_registration_persists_profile_only_after_otp_verification(auth_client: TestClient) -> None:
+    mobile = "9123456789"
+    requested = auth_client.post(
+        "/api/auth/otp/request",
+        json={"phone_number": mobile, "intent": "register"},
+    )
+    assert requested.status_code == 202
+
+    # Requesting an OTP alone does not turn the number into an account.
+    before_verification = auth_client.post(
+        "/api/auth/otp/request",
+        json={"phone_number": mobile, "intent": "login"},
+    )
+    assert before_verification.status_code == 404
+
+    verified = auth_client.post(
+        "/api/auth/otp/verify",
+        json={
+            "phone_number": mobile,
+            "otp_code": "624251",
+            "intent": "register",
+            "registration": {
+                "full_name": "Asha Devi",
+                "state": "Maharashtra",
+                "district": "Pune",
+                "village_or_town": "Mulshi",
+                "user_type": "farmer",
+                "address": "Pashan Road",
+                "cooperative_role": "Member",
+            },
+        },
+    )
+    assert verified.status_code == 200
+    payload = verified.json()
+    assert payload["is_new_user"] is True
+    assert payload["needs_onboarding"] is False
+    assert payload["full_name"] == "Asha Devi"
+    assert payload["user_type"] == "farmer"

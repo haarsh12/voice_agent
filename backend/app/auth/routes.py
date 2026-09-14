@@ -89,8 +89,39 @@ async def verify_mobile_otp(
 
     account = await session.scalar(select(Account).where(Account.phone_number == payload.phone_number))
     is_new_user = account is None
-    if account is None:
+    if payload.intent == "login" and account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="We could not find an account for this mobile number. Choose Create account to get started.",
+        )
+    if payload.intent == "register":
+        if account is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account already exists for this mobile number. Choose Log in to continue.",
+            )
+        if payload.registration is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Complete your support profile before verifying your mobile number.",
+            )
+        account = Account(
+            phone_number=payload.phone_number,
+            full_name=payload.registration.full_name,
+            state=payload.registration.state,
+            district=payload.registration.district,
+            village_or_town=payload.registration.village_or_town,
+            address=payload.registration.address,
+            user_type=payload.registration.user_type,
+            cooperative_role=payload.registration.cooperative_role,
+            profile_completed=True,
+        )
+    elif account is None:
+        # Backwards-compatible path for callers that predate the explicit
+        # login/register choice. The web UI always uses the safer paths above.
         account = Account(phone_number=payload.phone_number)
+
+    if is_new_user:
         session.add(account)
         await session.commit()
         await session.refresh(account)
