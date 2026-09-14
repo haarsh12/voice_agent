@@ -1,5 +1,9 @@
 .voice-app { width: 100%; min-height: 100svh; margin: 0 auto; padding: 28px; }
 .voice-app__header { display: flex; align-items: center; justify-content: space-between; max-width: 100%; margin: 0 auto 32px; padding: 0 20px; }
+.voice-app__header-actions { display: flex; align-items: center; gap: 12px; }
+.new-session-button { display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(125,211,252,.28); border-radius: 10px; padding: 8px 11px; color: #cbd5e1; background: rgba(15,23,42,.66); font: inherit; font-size: .78rem; font-weight: 650; cursor: pointer; }
+.new-session-button:hover:not(:disabled) { border-color: rgba(94,234,212,.7); color: #f8fafc; background: rgba(14,116,144,.2); }
+.new-session-button:disabled { opacity: .55; cursor: not-allowed; }
 
 /* Split Screen Layout */
 .split-layout { 
@@ -121,6 +125,90 @@ button:disabled { cursor: wait; opacity: .66; }
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
+.transcript-entry__attachment {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 5px 8px;
+  border: 1px solid rgba(125,211,252,.2);
+  border-radius: 8px;
+  color: #bae6fd;
+  background: rgba(14,116,144,.12);
+  font-size: .72rem;
+  overflow-wrap: anywhere;
+}
+
+.text-composer {
+  flex: 0 0 auto;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(148,163,184,.12);
+}
+.text-composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.text-composer__file-input { display: none; }
+.text-composer__attach,
+.text-composer__send,
+.text-composer__remove-file {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(125,211,252,.22);
+  color: #94a3b8;
+  background: rgba(2,6,23,.3);
+}
+.text-composer__attach,
+.text-composer__send {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+.text-composer__attach:hover:not(:disabled) { color: #bae6fd; border-color: rgba(125,211,252,.48); }
+.text-composer__send { color: #042f2e; border-color: transparent; background: #5eead4; }
+.text-composer__send:hover:not(:disabled) { background: #99f6e4; }
+.text-composer__input {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  max-height: 120px;
+  min-height: 42px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(148,163,184,.2);
+  border-radius: 12px;
+  color: #e2e8f0;
+  background: rgba(2,6,23,.28);
+  font: inherit;
+  font-size: .86rem;
+  line-height: 1.4;
+}
+.text-composer__input::placeholder { color: #64748b; }
+.text-composer__input:focus { border-color: rgba(94,234,212,.7); outline: none; box-shadow: 0 0 0 3px rgba(45,212,191,.1); }
+.text-composer__attachment {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(45,212,191,.24);
+  border-radius: 10px;
+  color: #ccfbf1;
+  background: rgba(6,95,70,.14);
+  font-size: .76rem;
+}
+.text-composer__attachment > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-composer__remove-file { width: 25px; height: 25px; margin-left: auto; border-radius: 7px; }
+.text-composer__remove-file:hover { color: #fff; border-color: rgba(251,113,133,.5); background: rgba(159,18,57,.32); }
+.text-composer__hint,
+.text-composer__error { margin: 8px 0 0; font-size: .69rem; line-height: 1.35; }
+.text-composer__hint { color: #64748b; }
+.text-composer__error { color: #fda4af; }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -148,6 +236,7 @@ button:disabled { cursor: wait; opacity: .66; }
   .user-visualizer { width: 100%; }
   .transcript-panel { padding: 18px; min-height: 350px; }
   .transcript-entry { max-width: 94%; }
+  .text-composer__hint { font-size: .64rem; }
 }
 
 
@@ -287,3 +376,20 @@ button:disabled { cursor: wait; opacity: .66; }
 .language-selector {
   display: none;
 }
+
+/* Browser camera capture deliberately uses getUserMedia rather than a hidden
+   file input, so the camera action never opens the operating system picker. */
+.camera-capture { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; padding: 20px; }
+.camera-capture__backdrop { position: absolute; inset: 0; background: rgba(2,6,23,.78); backdrop-filter: blur(4px); }
+.camera-capture__panel { position: relative; width: min(100%, 680px); overflow: hidden; border: 1px solid rgba(125,211,252,.3); border-radius: 18px; background: #0f172a; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+.camera-capture__header, .camera-capture__controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; }
+.camera-capture__header h3 { margin: 0; color: #f8fafc; font-size: 1rem; }
+.camera-capture__close, .camera-capture__switch, .camera-capture__take { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid rgba(148,163,184,.26); border-radius: 9px; padding: 9px 12px; color: #cbd5e1; background: rgba(15,23,42,.75); font: inherit; font-size: .8rem; font-weight: 650; cursor: pointer; }
+.camera-capture__close { width: 36px; height: 36px; padding: 0; }
+.camera-capture__take { border-color: #5eead4; color: #042f2e; background: #5eead4; }
+.camera-capture__switch:disabled, .camera-capture__take:disabled { opacity: .55; cursor: not-allowed; }
+.camera-capture__preview { position: relative; display: grid; min-height: 240px; place-items: center; background: #020617; }
+.camera-capture__preview video { display: block; width: 100%; max-height: min(65vh, 540px); object-fit: contain; }
+.camera-capture__preview p { position: absolute; margin: 0; padding: 9px 12px; border-radius: 8px; color: #e2e8f0; background: rgba(2,6,23,.78); font-size: .84rem; }
+.camera-capture__preview .camera-capture__error { color: #fecdd3; }
+@media (max-width: 540px) { .voice-app__header { padding: 0; } .new-session-button { padding: 8px; font-size: 0; } .new-session-button svg { width: 17px; height: 17px; } .camera-capture__controls { padding: 12px; } }

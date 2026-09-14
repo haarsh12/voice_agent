@@ -9,6 +9,7 @@ from app.agent.languages import stt_profile_for_language, voice_for_language
 from app.agent.runner import strip_internal_voice_markup
 from app.agent import providers
 from app.api import routes
+from app.services.guest_sessions import guest_sessions
 from app.services.token_issuer import IssuedToken
 
 
@@ -87,6 +88,36 @@ def test_token_endpoint_uses_livekit_participant_language_attribute(monkeypatch)
 
     assert response.server_url == "wss://example.invalid"
     assert received["language"] == "ta-IN"
+
+
+def test_token_endpoint_binds_an_active_guest_context_capability(monkeypatch) -> None:
+    received: dict[str, object] = {}
+    session_id, session_secret = guest_sessions.create()
+
+    def fake_issue_browser_token(_settings, **kwargs):
+        received.update(kwargs)
+        return IssuedToken(server_url="wss://example.invalid", participant_token="test-token")
+
+    settings = type("TokenSettings", (), {"require_token_issuer": lambda self: None})()
+    monkeypatch.setattr(routes, "issue_browser_token", fake_issue_browser_token)
+
+    asyncio.run(
+        routes.create_token(
+            routes.TokenRequest.model_validate(
+                {
+                    "participant_attributes": {
+                        "language": "hi-IN",
+                        "guest_session_id": session_id,
+                        "guest_session_secret": session_secret,
+                    }
+                }
+            ),
+            settings,
+        )
+    )
+
+    assert received["guest_session_id"] == session_id
+    assert received["guest_session_secret"] == session_secret
 
 
 def test_stt_uses_the_selected_language_profile_without_unsupported_punctuation(monkeypatch) -> None:

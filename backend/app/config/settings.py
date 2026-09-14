@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    # The voice worker uses this local API only to obtain the authenticated,
+    # short-lived guest context that was bound into the participant token.
+    # Keep it private to the deployment; it is never sent to the browser.
+    guest_session_api_url: str = "http://127.0.0.1:8000"
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:4173,http://127.0.0.1:4173"

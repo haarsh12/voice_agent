@@ -34,13 +34,24 @@ from app.agent.providers import (
 )
 from app.config.settings import MissingConfigurationError, get_settings
 from app.core.logging import configure_logging
+from app.services.guest_session_client import (
+    GuestSessionClientError,
+    append_voice_turn,
+    fetch_guest_context,
+)
 
 _BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 _PROJECT_DIRECTORY = _BACKEND_DIRECTORY.parent
 _LANGUAGE_CONTROL_TOPIC = "vyamit.language.v1"
+_CONTEXT_CONTROL_TOPIC = "vyamit.context.v1"
 _MAX_LANGUAGE_CONTROL_BYTES = 256
 _VOICE_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>")
 _INTERNAL_VOICE_TAGS = frozenset({"analysis", "reasoning", "thought", "thinking"})
+_INTERNAL_VOICE_BLOCK_PATTERN = re.compile(
+    r"<\s*(?:analysis|reasoning|thought|thinking)\b[^>]*>[\s\S]*?"
+    r"(?:<\s*/\s*(?:analysis|reasoning|thought|thinking)\s*>|$)",
+    re.IGNORECASE,
+)
 
 # Let the agent process see the same local credentials as FastAPI. A
 # backend/.env remains the preferred place for backend-specific overrides.
@@ -56,9 +67,11 @@ logger = logging.getLogger("vyamit.agent")
 class VyamitAssistant(Agent):
     """The language-aware, voice-first assistant persona."""
 
-    def __init__(self, active_language: str) -> None:
+    def __init__(self, active_language: str, guest_context: str = "") -> None:
         super().__init__(
-            instructions=build_voice_assistant_instructions(LANGUAGE_NAMES[active_language])
+            instructions=build_voice_assistant_instructions(
+                LANGUAGE_NAMES[active_language], guest_context
+            )
         )
 
 
@@ -126,7 +139,44 @@ def _log_background_exception(task: asyncio.Task[object]) -> None:
     try:
         task.result()
     except Exception:
-        logger.exception("language_update_task_failed")
+        logger.exception("background_session_task_failed")
+
+
+def _clean_voice_context_text(value: object) -> str:
+    """Keep accidental private reasoning out of the shared guest context."""
+
+    if not isinstance(value, str):
+        return ""
+    return (
+        _INTERNAL_VOICE_BLOCK_PATTERN.sub("", value)
+        .replace("<thought>", "")
+        .replace("</thought>", "")
+        .replace("\x00", "")
+        .strip()
+    )[:2_000]
+
+
+def _conversation_item_text(item: object) -> str:
+    """Extract a final LiveKit chat item's visible text across SDK shapes."""
+
+    direct_text = _event_value(item, "text_content")
+    if isinstance(direct_text, str):
+        return _clean_voice_context_text(direct_text)
+
+    content = _event_value(item, "content")
+    if isinstance(content, str):
+        return _clean_voice_context_text(content)
+    if isinstance(content, list):
+        fragments: list[str] = []
+        for fragment in content:
+            if isinstance(fragment, str):
+                fragments.append(fragment)
+            else:
+                text = _event_value(fragment, "text")
+                if isinstance(text, str):
+                    fragments.append(text)
+        return _clean_voice_context_text("".join(fragments))
+    return ""
 
 
 @server.rtc_session(agent_name=get_settings().agent_name)
@@ -145,6 +195,25 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
         or normalize_language(settings.google_stt_language)
         or "hi-IN"
     )
+    guest_session_id = participant.attributes.get("guest_session_id")
+    guest_session_secret = participant.attributes.get("guest_session_secret")
+    if bool(guest_session_id) != bool(guest_session_secret):
+        logger.warning("guest_context_ignored reason=incomplete_participant_attributes")
+        guest_session_id = None
+        guest_session_secret = None
+
+    guest_context = ""
+    if guest_session_id and guest_session_secret:
+        try:
+            guest_context = await fetch_guest_context(
+                settings.guest_session_api_url,
+                session_id=guest_session_id,
+                session_secret=guest_session_secret,
+            )
+        except GuestSessionClientError:
+            # Context enhances the call but an unavailable local API should
+            # never prevent the voice agent from starting a conversation.
+            logger.warning("guest_context_unavailable phase=initial_load")
     language_revision = 0
 
     logger.info(
@@ -153,7 +222,7 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
         active_language,
     )
 
-    assistant = VyamitAssistant(active_language)
+    assistant = VyamitAssistant(active_language, guest_context)
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
         llm=create_llm(settings),
@@ -190,10 +259,31 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
         )
         return language, language_revision, True
 
+    async def refresh_guest_context() -> None:
+        """Pull latest text/document history before the next voice reply."""
+
+        nonlocal guest_context
+        if not guest_session_id or not guest_session_secret:
+            return
+        try:
+            guest_context = await fetch_guest_context(
+                settings.guest_session_api_url,
+                session_id=guest_session_id,
+                session_secret=guest_session_secret,
+            )
+        except GuestSessionClientError:
+            logger.warning("guest_context_unavailable phase=refresh")
+            return
+        await assistant.update_instructions(
+            build_voice_assistant_instructions(LANGUAGE_NAMES[active_language], guest_context)
+        )
+
     async def announce_language(language: str, source: str, revision: int) -> None:
         """Update the LLM and send the authoritative UI state to its owner only."""
 
-        await assistant.update_instructions(build_voice_assistant_instructions(LANGUAGE_NAMES[language]))
+        await assistant.update_instructions(
+            build_voice_assistant_instructions(LANGUAGE_NAMES[language], guest_context)
+        )
         if revision != language_revision:
             return
 
@@ -221,23 +311,36 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
     def handle_language_control(packet: object) -> None:
         """Accept a compact language command only from this session's browser."""
 
-        if _event_value(packet, "topic", "") != _LANGUAGE_CONTROL_TOPIC:
+        topic = _event_value(packet, "topic", "")
+        if topic not in {_LANGUAGE_CONTROL_TOPIC, _CONTEXT_CONTROL_TOPIC}:
             return
         sender = _event_value(packet, "participant")
         if sender is None or _event_value(sender, "identity") != participant.identity:
-            logger.warning("ignored_language_control reason=unexpected_sender")
+            logger.warning("ignored_session_control reason=unexpected_sender")
             return
 
         data = _event_value(packet, "data", b"")
         if not isinstance(data, bytes) or len(data) > _MAX_LANGUAGE_CONTROL_BYTES:
-            logger.warning("ignored_language_control reason=invalid_payload_size")
+            logger.warning("ignored_session_control reason=invalid_payload_size")
             return
         try:
             message = json.loads(data.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            logger.warning("ignored_language_control reason=invalid_json")
+            logger.warning("ignored_session_control reason=invalid_json")
             return
-        if not isinstance(message, dict) or message.get("type") != "set_language":
+        if not isinstance(message, dict):
+            logger.warning("ignored_session_control reason=unsupported_message")
+            return
+
+        if topic == _CONTEXT_CONTROL_TOPIC:
+            if message.get("type") != "refresh_context":
+                logger.warning("ignored_context_control reason=unsupported_message")
+                return
+            task = asyncio.create_task(refresh_guest_context())
+            task.add_done_callback(_log_background_exception)
+            return
+
+        if message.get("type") != "set_language":
             logger.warning("ignored_language_control reason=unsupported_message")
             return
 
@@ -263,6 +366,31 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
         # Language selection is deliberately manual. The transcript locale is
         # logged for diagnostics only; it must not replace the user's selected
         # STT/TTS profile in the middle of a call.
+
+    @session.on("conversation_item_added")
+    def retain_final_voice_turn(event: object) -> None:
+        """Merge finalized LiveKit speech into this guest session's memory."""
+
+        if not guest_session_id or not guest_session_secret:
+            return
+        item = _event_value(event, "item", event)
+        role = _event_value(item, "role")
+        if role not in {"user", "assistant"}:
+            return
+        text = _conversation_item_text(item)
+        if not text:
+            return
+
+        task = asyncio.create_task(
+            append_voice_turn(
+                settings.guest_session_api_url,
+                session_id=guest_session_id,
+                session_secret=guest_session_secret,
+                role=role,
+                text=text,
+            )
+        )
+        task.add_done_callback(_log_background_exception)
 
     @session.on("agent_state_changed")
     def log_agent_state(event: object) -> None:

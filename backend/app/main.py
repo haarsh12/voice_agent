@@ -21,8 +21,8 @@ app.add_middleware(
     # calling this API through a visitor's browser.
     allow_origins=settings.allowed_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Vyamit-Guest-Secret"],
 )
 # Keep the router attached through FastAPI so application-level dependency
 # overrides (used by tests and deployment integrations) work correctly.

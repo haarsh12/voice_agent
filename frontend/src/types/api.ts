@@ -5,6 +5,18 @@ export type HealthResponse = {
   default_language: SupportedLanguage
 }
 
+export type TextChatResponse = {
+  message: string
+  language: SupportedLanguage
+  document_name: string | null
+  document_truncated: boolean
+}
+
+export type GuestSession = {
+  session_id: string
+  session_secret: string
+}
+
 export const SUPPORTED_LANGUAGE_CODES = [
   'hi-IN',
   'mr-IN',

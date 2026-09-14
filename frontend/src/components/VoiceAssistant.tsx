@@ -12,6 +12,7 @@ import {
   MicOff,
   Radio,
   RefreshCw,
+  RotateCcw,
   Volume2,
   WifiOff,
 } from 'lucide-react'
@@ -19,14 +20,17 @@ import {
 import { StatusChip } from './StatusChip'
 import { TranscriptPanel, type TranscriptEntry } from './TranscriptPanel'
 import { LanguageSelector } from './LanguageSelector'
-import { getHealth } from '../lib/api'
+import { getHealth, sendTextChat } from '../lib/api'
 import { type VoiceState, voiceStateDetails } from '../lib/voice-state'
-import { isSupportedLanguage, type SupportedLanguage } from '../types/api'
+import { isSupportedLanguage, type GuestSession, type SupportedLanguage } from '../types/api'
 
 type VoiceAssistantProps = {
   onLanguageChange: (language: SupportedLanguage) => void
   selectedLanguage: SupportedLanguage
   session: UseSessionReturn
+  guestSession: GuestSession | null
+  guestSessionError: string | null
+  onStartNewSession: () => Promise<void>
 }
 
 type ServiceReadiness = 'checking' | 'ready' | 'setup-required' | 'offline'
@@ -40,6 +44,7 @@ const microphoneConstraints = {
 }
 
 const languageControlTopic = 'vyamit.language.v1'
+const contextControlTopic = 'vyamit.context.v1'
 const internalVoiceTagPattern = /<\s*(?:analysis|reasoning|thought|thinking)\b[^>]*>[\s\S]*?(?:<\s*\/\s*(?:analysis|reasoning|thought|thinking)\s*>|$)/gi
 
 function cleanAssistantTranscript(text: string): string {
@@ -73,6 +78,9 @@ export function VoiceAssistant({
   onLanguageChange,
   selectedLanguage,
   session,
+  guestSession,
+  guestSessionError,
+  onStartNewSession,
 }: VoiceAssistantProps) {
   const agent = useAgent(session)
   const transcriptions = useTranscriptions({ room: session.room })
@@ -83,6 +91,9 @@ export function VoiceAssistant({
   const [isInterrupted, setIsInterrupted] = useState(false)
   const [serviceReadiness, setServiceReadiness] = useState<ServiceReadiness>('checking')
   const [isLanguageUpdating, setIsLanguageUpdating] = useState(false)
+  const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
+  const [isSendingText, setIsSendingText] = useState(false)
+  const [isResettingSession, setIsResettingSession] = useState(false)
   const interruptionTimeout = useRef<number | undefined>(undefined)
   const languageUpdateTimeout = useRef<number | undefined>(undefined)
   const lastConfirmedLanguage = useRef<SupportedLanguage>(selectedLanguage)
@@ -190,7 +201,7 @@ export function VoiceAssistant({
     [],
   )
 
-  const transcriptEntries = useMemo<TranscriptEntry[]>(
+  const voiceTranscriptEntries = useMemo<TranscriptEntry[]>(
     () =>
       transcriptions
         .map((entry, index) => {
@@ -198,14 +209,35 @@ export function VoiceAssistant({
           const text = role === 'assistant' ? cleanAssistantTranscript(entry.text) : entry.text.trim()
           if (!text) return null
           return {
-            id: `${entry.participantInfo.identity}-${index}-${entry.text}`,
+            id: `voice-${entry.participantInfo.identity}-${index}`,
             role,
             text,
+            source: 'voice',
           }
         })
         .filter((entry): entry is TranscriptEntry => entry !== null),
     [agent.identity, transcriptions],
   )
+
+  useEffect(() => {
+    if (voiceTranscriptEntries.length === 0) return
+    setTranscriptEntries((entries) => {
+      const next = [...entries]
+      for (const voiceEntry of voiceTranscriptEntries) {
+        const existingIndex = next.findIndex((entry) => entry.id === voiceEntry.id)
+        if (existingIndex >= 0) next[existingIndex] = voiceEntry
+        else next.push(voiceEntry)
+      }
+      return next
+    })
+  }, [voiceTranscriptEntries])
+
+  useEffect(() => {
+    // A fresh browser capability means a fresh, deliberately isolated guest
+    // conversation. The voice SDK clears its own old transcription history on
+    // disconnect; this resets the locally rendered text history at once.
+    setTranscriptEntries([])
+  }, [guestSession?.session_id])
 
   const agentFailure = agent.state === 'failed' ? agent.failureReasons.join(' ') : null
   const voiceState = toVoiceState(
@@ -269,6 +301,10 @@ export function VoiceAssistant({
   }
 
   async function connect(): Promise<void> {
+    if (!guestSession) {
+      setError(guestSessionError ?? 'Preparing your private guest session. Please wait a moment.')
+      return
+    }
     setIsStarting(true)
     setError(null)
 
@@ -312,6 +348,80 @@ export function VoiceAssistant({
     }
   }
 
+  async function sendTextMessage(message: string, document: File | null): Promise<void> {
+    if (!guestSession) {
+      const sessionError = guestSessionError ?? 'Your private guest session is still starting. Please try again in a moment.'
+      setError(sessionError)
+      throw new Error(sessionError)
+    }
+    const requestId = crypto.randomUUID()
+    const userText = message || 'Please summarize the attached document.'
+    setTranscriptEntries((entries) => [
+      ...entries,
+      {
+        id: `text-user-${requestId}`,
+        role: 'user',
+        text: userText,
+        attachmentName: document?.name,
+        source: 'text',
+      },
+    ])
+    setIsSendingText(true)
+    setError(null)
+
+    try {
+      const response = await sendTextChat(message, selectedLanguage, document, guestSession)
+      setTranscriptEntries((entries) => [
+        ...entries,
+        {
+          id: `text-assistant-${requestId}`,
+          role: 'assistant',
+          text: cleanAssistantTranscript(response.message),
+          source: 'text',
+        },
+      ])
+      if (session.isConnected) {
+        try {
+          await session.room.localParticipant.publishData(
+            new TextEncoder().encode(JSON.stringify({ type: 'refresh_context' })),
+            { reliable: true, topic: contextControlTopic },
+          )
+        } catch {
+          // The text reply is already complete. A failed optional live-room
+          // refresh must not erase it; the next voice reconnect will reload
+          // the same in-memory session context.
+        }
+      }
+    } catch (caughtError) {
+      const textError = caughtError instanceof Error
+        ? caughtError.message
+        : 'The text message could not be sent. Please try again.'
+      setTranscriptEntries((entries) => entries.filter((entry) => entry.id !== `text-user-${requestId}`))
+      setError(textError)
+      throw new Error(textError)
+    } finally {
+      setIsSendingText(false)
+    }
+  }
+
+  async function startNewSession(): Promise<void> {
+    setIsResettingSession(true)
+    setError(null)
+    try {
+      if (session.isConnected) await disconnect()
+      await onStartNewSession()
+      setTranscriptEntries([])
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'A new session could not be started. Please refresh and try again.',
+      )
+    } finally {
+      setIsResettingSession(false)
+    }
+  }
+
   return (
     <main className="voice-app">
       <header className="voice-app__header">
@@ -321,13 +431,25 @@ export function VoiceAssistant({
           </span>
           <span>Vyamit</span>
         </div>
-        <StatusChip state={voiceState} />
+        <div className="voice-app__header-actions">
+          <button
+            className="new-session-button"
+            disabled={isStarting || isResettingSession}
+            onClick={() => void startNewSession()}
+            title="Clear this guest conversation and start a new one"
+            type="button"
+          >
+            <RotateCcw size={16} aria-hidden="true" />
+            {isResettingSession ? 'Starting…' : 'New session'}
+          </button>
+          <StatusChip state={voiceState} />
+        </div>
       </header>
 
       <LanguageSelector
         selectedLanguage={selectedLanguage}
         onLanguageChange={(language) => void selectLanguage(language)}
-        disabled={isStarting}
+        disabled={isStarting || isResettingSession}
         isConnected={session.isConnected}
         isUpdating={isLanguageUpdating}
       />
@@ -382,7 +504,7 @@ export function VoiceAssistant({
             ) : (
               <button
                 className="connect-button"
-                disabled={isStarting || serviceReadiness === 'offline'}
+                disabled={isStarting || isResettingSession || !guestSession || serviceReadiness === 'offline'}
                 onClick={() => void connect()}
                 type="button"
               >
@@ -414,7 +536,12 @@ export function VoiceAssistant({
           )}
         </section>
 
-        <TranscriptPanel entries={transcriptEntries} />
+        <TranscriptPanel
+          entries={transcriptEntries}
+          isSendingText={isSendingText}
+          onSendText={sendTextMessage}
+          disabled={!guestSession || isResettingSession}
+        />
       </div>
     </main>
   )
