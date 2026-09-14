@@ -7,6 +7,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -162,3 +163,9 @@ def test_registration_persists_profile_only_after_otp_verification(auth_client: 
     assert payload["needs_onboarding"] is False
     assert payload["full_name"] == "Asha Devi"
     assert payload["user_type"] == "farmer"
+
+
+def test_account_sessions_have_a_minimum_one_hour_lifetime() -> None:
+    assert Settings(jwt_access_token_minutes=60).jwt_access_token_minutes == 60
+    with pytest.raises(ValidationError):
+        Settings(jwt_access_token_minutes=59)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 import secrets
 
 from pydantic import Field, SecretStr
@@ -45,7 +46,9 @@ class Settings(BaseSettings):
     # browser uses an HttpOnly session cookie and never receives these values.
     database_url: SecretStr | None = None
     jwt_secret_key: SecretStr | None = None
-    jwt_access_token_minutes: int = Field(default=60 * 24 * 7, ge=5, le=60 * 24 * 30)
+    # Account sessions must remain usable for at least one hour. The default
+    # is seven days; deployments may shorten it, but never below 60 minutes.
+    jwt_access_token_minutes: int = Field(default=60 * 24 * 7, ge=60, le=60 * 24 * 30)
     otp_demo_mode: bool = True
     otp_demo_code: SecretStr | None = None
     fast2sms_api_key: SecretStr | None = None
@@ -207,11 +210,41 @@ def get_settings() -> Settings:
     """Return a single immutable-ish settings instance per process."""
 
     settings = Settings()
-    # A process-local signing key makes the zero-configuration demonstration
-    # usable without accidentally committing a development secret. Restarting
-    # the dev server deliberately invalidates old demo sessions.
+    # Keep a private development signing key stable across FastAPI reloads.
+    # A process-local random key would invalidate every browser session when
+    # the reloader restarts the server after an ordinary code change.
     if not settings.is_production and (
         settings.jwt_secret_key is None or not settings.jwt_secret_key.get_secret_value().strip()
     ):
-        settings.jwt_secret_key = SecretStr(secrets.token_urlsafe(48))
+        settings.jwt_secret_key = SecretStr(_load_or_create_development_jwt_secret())
     return settings
+
+
+def _load_or_create_development_jwt_secret() -> str:
+    """Return a Git-ignored, per-workspace signing key for local development."""
+
+    secret_file = Path(__file__).resolve().parents[2] / ".sahayak-dev-jwt"
+    try:
+        existing = secret_file.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+
+    generated = secrets.token_urlsafe(48)
+    try:
+        # Exclusive creation prevents a Uvicorn reloader parent and child from
+        # replacing one another's development session key.
+        with secret_file.open("x", encoding="utf-8") as file:
+            file.write(generated)
+        return generated
+    except FileExistsError:
+        existing = secret_file.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError as error:
+        raise MissingConfigurationError(
+            "JWT_SECRET_KEY must be configured when the development key cannot be stored."
+        ) from error
+
+    raise MissingConfigurationError("Development JWT secret could not be initialized.")

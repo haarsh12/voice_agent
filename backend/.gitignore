@@ -6,6 +6,7 @@ __pycache__/
 .env.local
 .env.example
 sahayak-dev.db
+.sahayak-dev-jwt
 
 # Google Cloud credentials
 *.json
