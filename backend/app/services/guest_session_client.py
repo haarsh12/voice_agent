@@ -40,7 +40,7 @@ def _request_json(
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "X-Vyamit-Guest-Secret": session_secret,
+            "X-Sahayak-Guest-Secret": session_secret,
         },
     )
     try:

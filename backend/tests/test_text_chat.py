@@ -259,7 +259,7 @@ def test_guest_session_keeps_document_and_turn_context_only_until_deleted(monkey
 
     deleted = client.delete(
         f"/api/guest-sessions/{guest['session_id']}",
-        headers={"X-Vyamit-Guest-Secret": guest["session_secret"]},
+        headers={"X-Sahayak-Guest-Secret": guest["session_secret"]},
     )
     assert deleted.status_code == 204
     expired = client.post(

@@ -1,4 +1,4 @@
-"""Runnable LiveKit AgentServer for the Vyamit realtime voice test lab."""
+"""Runnable LiveKit AgentServer for the Sahayak AI voice assistant."""
 
 from __future__ import annotations
 
@@ -42,8 +42,8 @@ from app.services.guest_session_client import (
 
 _BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 _PROJECT_DIRECTORY = _BACKEND_DIRECTORY.parent
-_LANGUAGE_CONTROL_TOPIC = "vyamit.language.v1"
-_CONTEXT_CONTROL_TOPIC = "vyamit.context.v1"
+_LANGUAGE_CONTROL_TOPIC = "sahayak.language.v1"
+_CONTEXT_CONTROL_TOPIC = "sahayak.context.v1"
 _MAX_LANGUAGE_CONTROL_BYTES = 256
 _VOICE_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>")
 _INTERNAL_VOICE_TAGS = frozenset({"analysis", "reasoning", "thought", "thinking"})
@@ -61,10 +61,10 @@ load_dotenv(_BACKEND_DIRECTORY / ".env", override=True)
 load_dotenv(_BACKEND_DIRECTORY / ".env.local", override=True)
 
 configure_logging()
-logger = logging.getLogger("vyamit.agent")
+logger = logging.getLogger("sahayak.agent")
 
 
-class VyamitAssistant(Agent):
+class SahayakAssistant(Agent):
     """The language-aware, voice-first assistant persona."""
 
     def __init__(self, active_language: str, guest_context: str = "") -> None:
@@ -180,7 +180,7 @@ def _conversation_item_text(item: object) -> str:
 
 
 @server.rtc_session(agent_name=get_settings().agent_name)
-async def vyamit_voice_agent(ctx: JobContext) -> None:
+async def sahayak_voice_agent(ctx: JobContext) -> None:
     """Run one voice session with live, validated language updates."""
 
     settings = get_settings()
@@ -222,7 +222,7 @@ async def vyamit_voice_agent(ctx: JobContext) -> None:
         active_language,
     )
 
-    assistant = VyamitAssistant(active_language, guest_context)
+    assistant = SahayakAssistant(active_language, guest_context)
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
         llm=create_llm(settings),

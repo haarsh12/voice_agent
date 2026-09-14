@@ -17,6 +17,43 @@ export type GuestSession = {
   session_secret: string
 }
 
+export const USER_TYPES = [
+  'cooperative_member',
+  'farmer',
+  'pacs_member',
+  'cooperative_official',
+  'rural_stakeholder',
+  'other',
+] as const
+
+export type UserType = (typeof USER_TYPES)[number]
+
+export type SahayakProfile = {
+  full_name: string | null
+  phone_number: string
+  state: string | null
+  district: string | null
+  village_or_town: string | null
+  address: string | null
+  user_type: UserType | null
+  cooperative_role: string | null
+  needs_onboarding: boolean
+}
+
+export type VerifiedProfile = SahayakProfile & {
+  is_new_user: boolean
+}
+
+export type ProfileUpdate = {
+  full_name?: string
+  state?: string
+  district?: string
+  village_or_town?: string
+  address?: string
+  user_type?: UserType
+  cooperative_role?: string
+}
+
 export const SUPPORTED_LANGUAGE_CODES = [
   'hi-IN',
   'mr-IN',

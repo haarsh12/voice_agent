@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    app_env: str = "development"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     # The voice worker uses this local API only to obtain the authenticated,
@@ -37,7 +38,17 @@ class Settings(BaseSettings):
     livekit_url: str = ""
     livekit_api_key: SecretStr | None = None
     livekit_api_secret: SecretStr | None = None
-    agent_name: str = "vyamit-voice"
+    agent_name: str = "sahayak-ai"
+
+    # Mobile-account credentials and database access are server-only. The
+    # browser uses an HttpOnly session cookie and never receives these values.
+    database_url: SecretStr | None = None
+    jwt_secret_key: SecretStr | None = None
+    jwt_access_token_minutes: int = Field(default=60 * 24 * 7, ge=5, le=60 * 24 * 30)
+    otp_demo_mode: bool = True
+    otp_demo_code: SecretStr | None = None
+    fast2sms_api_key: SecretStr | None = None
+    fast2sms_base_url: str = "https://www.fast2sms.com/dev/bulkV2"
 
     # Google Cloud STT configuration
     google_application_credentials: str | None = None
@@ -46,7 +57,7 @@ class Settings(BaseSettings):
     # uses the explicit, provider-compatible profile for each language.
     google_stt_model: str = "latest_long"
     google_stt_location: str = "global"
-    google_keyterms: str = "Vyamit,व्यामित,नमस्ते,धन्यवाद,मराठी"
+    google_keyterms: str = "Sahayak,सहायक,नमस्ते,धन्यवाद,सहकारी,पीएसीएस"
 
     # Gemini runs through Vertex AI using GOOGLE_APPLICATION_CREDENTIALS. The
     # project can be inferred from a service-account key, but specifying it is
@@ -75,6 +86,50 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() in {"production", "prod"}
+
+    @property
+    def async_database_url(self) -> str | None:
+        if self.database_url is None:
+            return None
+        value = self.database_url.get_secret_value().strip()
+        if value.startswith("postgres://"):
+            value = "postgresql://" + value.removeprefix("postgres://")
+        if value.startswith("postgresql://"):
+            return (
+                "postgresql+asyncpg://" + value.removeprefix("postgresql://")
+            ).replace("sslmode=", "ssl=")
+        return value or None
+
+    def require_jwt_secret(self) -> str:
+        if self.jwt_secret_key is None or not self.jwt_secret_key.get_secret_value().strip():
+            raise MissingConfigurationError("JWT_SECRET_KEY must be configured on the server.")
+        return self.jwt_secret_key.get_secret_value()
+
+    def require_demo_otp_code(self) -> str:
+        # Keep the test code backend-owned. Production startup rejects demo
+        # mode, so it can never become a production authentication path.
+        value = self.otp_demo_code.get_secret_value().strip() if self.otp_demo_code else "624251"
+        if len(value) != 6 or not value.isdigit():
+            raise MissingConfigurationError("OTP_DEMO_CODE must be exactly six digits.")
+        return value
+
+    def require_sms_delivery(self) -> None:
+        if self.otp_demo_mode:
+            return
+        self._require("FAST2SMS_API_KEY", self.fast2sms_api_key)
+
+    def require_runtime_security(self) -> None:
+        if not self.is_production:
+            return
+        self.require_jwt_secret()
+        if self.otp_demo_mode:
+            raise MissingConfigurationError("OTP_DEMO_MODE must be disabled in production.")
+        if not self.allowed_origins or any(not origin.startswith("https://") for origin in self.allowed_origins):
+            raise MissingConfigurationError("CORS_ORIGINS must contain explicit HTTPS origins in production.")
 
     @property
     def keyterms(self) -> list[str]:

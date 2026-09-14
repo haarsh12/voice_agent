@@ -36,9 +36,9 @@ _MAX_CHAT_MESSAGE_CHARACTERS = 4_000
 _MAX_CHAT_REQUEST_BYTES = MAX_UPLOAD_BYTES + 128 * 1024
 _CHAT_REQUESTS_PER_MINUTE = 12
 _CHAT_RATE_LIMIT_WINDOW_SECONDS = 60.0
-_GUEST_SECRET_HEADER = "X-Vyamit-Guest-Secret"
+_GUEST_SECRET_HEADER = "X-Sahayak-Guest-Secret"
 _chat_rate_limit: dict[str, deque[float]] = defaultdict(deque)
-logger = logging.getLogger("vyamit.api")
+logger = logging.getLogger("sahayak.api")
 
 # Supported languages for STT/TTS (validated list from Google Cloud)
 SUPPORTED_LANGUAGES = Literal[
@@ -234,7 +234,7 @@ async def create_token(
         ) from error
 
     request = request or TokenRequest()
-    room_name = request.room_name or f"vyamit-{uuid4().hex[:12]}"
+    room_name = request.room_name or f"sahayak-{uuid4().hex[:12]}"
     participant_name = request.participant_name or "Guest"
     requested_language = request.language or request.participant_attributes.get("language")
     language = normalize_language(requested_language)

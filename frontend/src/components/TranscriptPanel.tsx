@@ -111,7 +111,7 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                 ref={index === entries.length - 1 ? lastEntryRef : null}
               >
                 <span className="transcript-entry__role">
-                  {entry.role === 'assistant' ? 'Vyamit' : 'You'}
+                  {entry.role === 'assistant' ? 'Sahayak AI' : 'You'}
                 </span>
                 <p>{entry.text}</p>
                 {entry.attachmentName && (
@@ -189,7 +189,7 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
             <Camera size={19} aria-hidden="true" />
           </button>
           <textarea
-            aria-label="Message Vyamit"
+            aria-label="Message Sahayak AI"
             className="text-composer__input"
             disabled={isSendingText || disabled}
             maxLength={4_000}
