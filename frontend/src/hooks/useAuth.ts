@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { getProfile, requestOtp, signOut, updateProfile, verifyOtp } from '../lib/api'
+import { getProfile, requestOtp, signOut, updateProfile, verifyOtp, type MobileAuthIntent } from '../lib/api'
 import type { ProfileUpdate, SahayakProfile, VerifiedProfile } from '../types/api'
 
 export type AuthStatus = 'loading' | 'guest' | 'authenticated'
@@ -8,7 +8,7 @@ export type AuthStatus = 'loading' | 'guest' | 'authenticated'
 export type SahayakAuth = {
   status: AuthStatus
   user: SahayakProfile | null
-  requestOtp: (phoneNumber: string) => Promise<void>
+  requestOtp: (phoneNumber: string, intent: MobileAuthIntent) => Promise<void>
   verifyOtp: (phoneNumber: string, otpCode: string) => Promise<VerifiedProfile>
   saveProfile: (payload: ProfileUpdate) => Promise<SahayakProfile>
   signOut: () => Promise<void>
@@ -34,8 +34,8 @@ export function useAuth(): SahayakAuth {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const sendOtp = useCallback(async (phoneNumber: string): Promise<void> => {
-    await requestOtp(phoneNumber)
+  const sendOtp = useCallback(async (phoneNumber: string, intent: MobileAuthIntent): Promise<void> => {
+    await requestOtp(phoneNumber, intent)
   }, [])
 
   const confirmOtp = useCallback(async (phoneNumber: string, otpCode: string): Promise<VerifiedProfile> => {

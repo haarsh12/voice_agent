@@ -48,6 +48,17 @@ async def request_otp(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
     _request_limiter.check("otp-request", payload.phone_number)
+    account = await session.scalar(select(Account).where(Account.phone_number == payload.phone_number))
+    if payload.intent == "login" and account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="We could not find an account for this mobile number. Choose Create account to get started.",
+        )
+    if payload.intent == "register" and account is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account already exists for this mobile number. Choose Log in to continue.",
+        )
     code = await issue_otp(session, phone_number=payload.phone_number, settings=settings)
     try:
         await deliver_otp(phone_number=payload.phone_number, code=code, settings=settings)
@@ -120,9 +131,8 @@ async def logout(
     account: Account = Depends(get_current_account),
     session: AsyncSession = Depends(get_auth_session),
     settings: Settings = Depends(get_settings),
-) -> Response:
+) -> None:
     require_csrf(request)
     account.token_version += 1
     await session.commit()
     clear_session_cookies(response, settings=settings)
-    return response

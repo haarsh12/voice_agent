@@ -88,6 +88,27 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
+    def cors_origin_regex(self) -> str | None:
+        """Allow ordinary local/LAN Vite origins only while developing.
+
+        Credentials are used for the Sahayak session, so a wildcard origin is
+        intentionally never used. Developers do, however, often run Vite on a
+        different port or access it through a private LAN address when testing
+        on a phone. This narrowly scoped development expression avoids failed
+        preflight requests in those cases. Production remains explicit-only.
+        """
+        if self.is_production:
+            return None
+        return (
+            r"^https?://(?:"
+            r"localhost|127\\.0\\.0\\.1|\\[::1\\]|"
+            r"10(?:\\.\\d{1,3}){3}|"
+            r"192\\.168(?:\\.\\d{1,3}){2}|"
+            r"172\\.(?:1[6-9]|2\\d|3[0-1])(?:\\.\\d{1,3}){2}"
+            r")(?::\\d{1,5})?$"
+        )
+
+    @property
     def is_production(self) -> bool:
         return self.app_env.strip().lower() in {"production", "prod"}
 

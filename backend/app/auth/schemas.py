@@ -30,6 +30,9 @@ def normalise_indian_phone(value: str) -> str:
 
 class OTPRequest(BaseModel):
     phone_number: str = Field(min_length=10, max_length=20)
+    # None preserves the original endpoint contract for existing integrations.
+    # The Sahayak web flow always sends an explicit intent.
+    intent: Literal["login", "register"] | None = None
 
     @field_validator("phone_number")
     @classmethod

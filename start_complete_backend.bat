@@ -1,6 +1,6 @@
 @echo off
 echo ===================================
-echo Starting Complete Vyamit Voice Backend
+echo Starting Complete Sahayak AI Backend
 echo ===================================
 echo.
 echo This will start:
@@ -14,12 +14,12 @@ cd backend
 call .venv\Scripts\activate.bat
 
 echo [1/2] Starting FastAPI backend server...
-start "Vyamit Backend API" cmd /k "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "Sahayak AI Backend API" cmd /k "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
 
 timeout /t 3 /nobreak > nul
 
 echo [2/2] Starting LiveKit agent worker...
-start "Vyamit Agent Worker" cmd /k "python -m app.agent.runner start"
+start "Sahayak AI Agent Worker" cmd /k "python -m app.agent.runner start"
 
 echo.
 echo ===================================

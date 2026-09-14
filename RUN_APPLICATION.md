@@ -1,318 +1,66 @@
-# How to Run Vyamit Voice Application
+# Run Sahayak AI locally
 
-## 🎯 Quick Start
+## Start the app
 
-### Method 1: Using Batch Scripts (Windows)
+Use two terminals:
 
-1. **Start Backend** - Double-click `start_backend.bat`
-   - Opens terminal and starts backend on http://localhost:8000
+    # Terminal 1 — FastAPI
+    cd backend
+    .\.venv\Scripts\python.exe -m pip install -e .
+    .\.venv\Scripts\uvicorn.exe app.main:app --reload --host 127.0.0.1 --port 8000
 
-2. **Start Frontend** - Double-click `start_frontend.bat`
-   - Opens terminal and starts frontend on http://localhost:5173
+    # Terminal 2 — React
+    cd frontend
+    npm.cmd install
+    npm.cmd run dev
 
-3. **Open Browser** - Go to http://localhost:5173
+Then open the address displayed by Vite, usually http://localhost:5173.
 
----
+For voice conversations, also start the LiveKit worker:
 
-### Method 2: Manual Commands
+    cd backend
+    .\.venv\Scripts\python.exe -m app.agent.runner start
 
-#### Terminal 1 - Backend
+The included Windows shortcuts start the same services:
 
-```bash
-cd backend
-.venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+- start_backend.bat — FastAPI service
+- start_frontend.bat — Vite development server
+- start_complete_backend.bat — FastAPI plus the LiveKit worker
 
-#### Terminal 2 - Frontend
+## Required server configuration
 
-```bash
-cd frontend
-npm install  # First time only
-npm run dev
-```
+Copy .env.example to .env and configure the existing LiveKit and Google
+credentials. The agent name must match for the FastAPI token service and the
+worker:
 
----
+    AGENT_NAME=sahayak-ai
+    VITE_AGENT_NAME=sahayak-ai
 
-## 📋 Prerequisites
+The React app talks to FastAPI at http://127.0.0.1:8000 by default. If Vite
+runs at an address not included in CORS_ORIGINS, add that explicit local
+origin to the server environment and restart FastAPI.
 
-### Backend Requirements
+## Mobile account testing
 
-✅ Python 3.10+
-✅ Virtual environment created
-✅ Dependencies installed
+Before testing the sign-in flow, apply
+supabase/migrations/20260914_sahayak_account_data.sql to the server database
+and configure:
 
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-```
+    DATABASE_URL=postgresql://...
+    JWT_SECRET_KEY=a-long-random-server-secret
+    OTP_DEMO_MODE=true
+    OTP_DEMO_CODE=624251
 
-### Frontend Requirements
+During development, FastAPI accepts the demo OTP 624251. It is never placed in
+the React app. Production startup fails closed when OTP_DEMO_MODE=true; disable
+it and configure an SMS provider before any real deployment.
 
-✅ Node.js 18+
-✅ npm or yarn
+## Verify
 
-```bash
-cd frontend
-npm install
-```
+    cd frontend
+    npm.cmd run build
 
----
+    cd ..\backend
+    .\.venv\Scripts\python.exe -m pytest -q
 
-## 🔧 Configuration
-
-### Backend Configuration (`.env` file)
-
-Create or edit `backend/.env`:
-
-```env
-# LiveKit Configuration
-LIVEKIT_URL=wss://your-livekit-server.com
-LIVEKIT_API_KEY=your-api-key
-LIVEKIT_API_SECRET=your-api-secret
-
-# Agent Configuration
-AGENT_NAME=vyamit-voice
-
-# Deepgram (Speech-to-Text)
-DEEPGRAM_API_KEY=your-deepgram-key
-DEEPGRAM_STT_MODEL=nova-3
-DEEPGRAM_STT_LANGUAGE=multi
-
-# Mistral (LLM)
-MISTRAL_API_KEY=your-mistral-key
-MISTRAL_MODEL=mistral-medium-latest
-MISTRAL_TEMPERATURE=0.35
-
-# Cartesia (Text-to-Speech)
-CARTESIA_API_KEY=your-cartesia-key
-CARTESIA_TTS_MODEL=sonic-3
-CARTESIA_VOICE_ID=f786b574-daa5-4673-aa0c-cbe3e8534c02
-CARTESIA_TTS_LANGUAGE=en
-
-# Server Configuration
-API_HOST=0.0.0.0
-API_PORT=8000
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-```
-
-### Frontend Configuration (`.env` file)
-
-Create or edit `frontend/.env`:
-
-```env
-VITE_API_URL=http://localhost:8000
-```
-
----
-
-## 🌐 Access Points
-
-Once both servers are running:
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| **Frontend** | http://localhost:5173 | Main web application |
-| **Backend API** | http://localhost:8000 | REST API |
-| **API Docs (Swagger)** | http://localhost:8000/docs | Interactive API documentation |
-| **API Docs (ReDoc)** | http://localhost:8000/redoc | Alternative API documentation |
-| **Health Check** | http://localhost:8000/api/health | Backend health status |
-
----
-
-## 🧪 Testing the Application
-
-### 1. Check Backend Health
-
-```bash
-curl http://localhost:8000/api/health
-```
-
-Expected response:
-```json
-{
-  "status": "ok",
-  "agent_name": "vyamit-voice",
-  "configured": true
-}
-```
-
-### 2. Test Token Generation
-
-```bash
-curl -X POST http://localhost:8000/api/token \
-  -H "Content-Type: application/json" \
-  -d '{"room_name":"test-room","participant_name":"TestUser"}'
-```
-
-Expected response:
-```json
-{
-  "server_url": "wss://your-livekit-server.com",
-  "participant_token": "eyJ..."
-}
-```
-
-### 3. Open Frontend
-
-Visit http://localhost:5173 in your browser
-
----
-
-## 🔍 Troubleshooting
-
-### Backend Issues
-
-**Problem**: `ModuleNotFoundError: No module named 'src'`
-```bash
-# Use correct command
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-**Problem**: `Port 8000 already in use`
-```bash
-# Find and kill the process
-netstat -ano | findstr :8000
-taskkill /PID <PID> /F
-
-# Or use a different port
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
-```
-
-**Problem**: Virtual environment not activated
-```bash
-cd backend
-.venv\Scripts\activate
-# You should see (.venv) in your prompt
-```
-
-### Frontend Issues
-
-**Problem**: `npm: command not found`
-- Install Node.js from https://nodejs.org/
-
-**Problem**: `EADDRINUSE: address already in use`
-```bash
-# Kill the process on port 5173
-netstat -ano | findstr :5173
-taskkill /PID <PID> /F
-```
-
-**Problem**: Dependencies not installed
-```bash
-cd frontend
-npm install
-```
-
-### Connection Issues
-
-**Problem**: Frontend can't connect to backend
-1. Check backend is running on port 8000
-2. Check `frontend/.env` has correct `VITE_API_URL`
-3. Check CORS settings in `backend/.env`
-
-**Problem**: CORS errors in browser console
-```env
-# In backend/.env, ensure frontend URL is in CORS_ORIGINS
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-```
-
----
-
-## 🛑 Stopping the Application
-
-### Stop Backend
-Press `Ctrl + C` in the backend terminal
-
-### Stop Frontend
-Press `Ctrl + C` in the frontend terminal
-
----
-
-## 📦 Complete Setup from Scratch
-
-```bash
-# 1. Clone/Navigate to project
-cd voice_stream
-
-# 2. Setup Backend
-cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
-# Create .env file with your API keys
-cd ..
-
-# 3. Setup Frontend
-cd frontend
-npm install
-# Create .env file if needed
-cd ..
-
-# 4. Start Backend (Terminal 1)
-cd backend
-.venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 5. Start Frontend (Terminal 2)
-cd frontend
-npm run dev
-
-# 6. Open Browser
-# Go to http://localhost:5173
-```
-
----
-
-## 🎬 Development Workflow
-
-### Daily Startup
-
-1. Open two terminals
-2. **Terminal 1**: `start_backend.bat` or manual backend commands
-3. **Terminal 2**: `start_frontend.bat` or manual frontend commands
-4. Open http://localhost:5173
-
-### Making Changes
-
-- **Backend changes**: Server auto-reloads (thanks to `--reload` flag)
-- **Frontend changes**: Vite auto-reloads in browser
-- **Environment changes**: Restart the affected server
-
-### Running Tests
-
-```bash
-# Backend tests
-cd backend
-pytest
-
-# Frontend tests (if configured)
-cd frontend
-npm test
-```
-
----
-
-## 📚 Additional Resources
-
-- **Backend API Documentation**: http://localhost:8000/docs
-- **Testing Guide**: `backend/TESTING.md`
-- **Test Commands**: `backend/TEST_COMMANDS.md`
-- **Quick Start**: `backend/QUICKSTART_TESTING.md`
-
----
-
-## ✅ Success Checklist
-
-- [ ] Backend running on port 8000
-- [ ] Frontend running on port 5173
-- [ ] Can access http://localhost:8000/api/health
-- [ ] Can access http://localhost:8000/docs
-- [ ] Can access http://localhost:5173
-- [ ] No CORS errors in browser console
-- [ ] Backend shows "configured: true" (if API keys provided)
-
-🎉 **You're all set!** Your Vyamit Voice application is running.
+Expected API readiness endpoint: http://127.0.0.1:8000/api/health

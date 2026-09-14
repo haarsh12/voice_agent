@@ -1,6 +1,6 @@
 @echo off
 echo ===================================
-echo Starting Vyamit Voice Frontend
+echo Starting Sahayak AI Frontend
 echo ===================================
 echo.
 
