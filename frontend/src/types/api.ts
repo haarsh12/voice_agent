@@ -10,6 +10,12 @@ export type TextChatResponse = {
   language: SupportedLanguage
   document_name: string | null
   document_truncated: boolean
+  sources: OfficialSourceReference[]
+}
+
+export type OfficialSourceReference = {
+  name: string
+  url: string
 }
 
 export type GuestSession = {

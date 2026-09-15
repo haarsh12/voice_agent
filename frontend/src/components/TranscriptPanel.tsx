@@ -1,12 +1,14 @@
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Camera, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { CameraCapture } from './CameraCapture'
+import type { OfficialSourceReference } from '../types/api'
 
 export type TranscriptEntry = {
   id: string
   role: 'user' | 'assistant'
   text: string
   attachmentName?: string
+  sources?: OfficialSourceReference[]
   source: 'text' | 'voice'
 }
 
@@ -114,6 +116,16 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                   {entry.role === 'assistant' ? 'Sahayak AI' : 'You'}
                 </span>
                 <p>{entry.text}</p>
+                {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
+                  <footer className="transcript-entry__sources" aria-label="Official sources">
+                    <span>Official source{entry.sources.length > 1 ? 's' : ''}</span>
+                    {entry.sources.map((source) => (
+                      <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+                        {source.name}<small>{source.url}</small>
+                      </a>
+                    ))}
+                  </footer>
+                )}
                 {entry.attachmentName && (
                   <span className="transcript-entry__attachment">
                     <FileText size={14} aria-hidden="true" />

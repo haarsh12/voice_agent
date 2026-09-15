@@ -23,6 +23,7 @@ from app.services.document_text import (
     extract_uploaded_document,
 )
 from app.services.gemini import TextGenerationError, generate_text_reply
+from app.services.official_sources import OfficialSource, select_official_sources
 from app.services.guest_sessions import (
     MAX_AGENT_CONTEXT_CHARACTERS,
     GuestSessionError,
@@ -80,12 +81,27 @@ class ConnectionDetails(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """A direct Gemini text reply, with no provider metadata or secrets."""
+    """A direct text reply with only reviewed official source metadata."""
 
     message: str
     language: SUPPORTED_LANGUAGES
     document_name: str | None = None
     document_truncated: bool = False
+    sources: list["OfficialSourceReference"] = Field(default_factory=list)
+
+
+class OfficialSourceReference(BaseModel):
+    """A reviewed official link rendered below a text-chat response."""
+
+    name: str
+    url: str
+
+
+def _source_references(message: str) -> list[OfficialSourceReference]:
+    """Map user intent to allowlisted official links, never model-provided URLs."""
+
+    sources: tuple[OfficialSource, ...] = select_official_sources(message)
+    return [OfficialSourceReference(name=source.name, url=source.url) for source in sources]
 
 
 class GuestSessionResponse(BaseModel):
@@ -393,4 +409,5 @@ async def create_text_chat_reply(
         language=language,
         document_name=attachment.filename if attachment else None,
         document_truncated=document.truncated if document else False,
+        sources=_source_references(message),
     )

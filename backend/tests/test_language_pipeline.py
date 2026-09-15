@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from app.agent.languages import stt_profile_for_language, voice_for_language
+from app.agent.prompts import build_voice_assistant_instructions
 from app.agent.runner import strip_internal_voice_markup
 from app.agent import providers
 from app.api import routes
@@ -182,3 +183,12 @@ def test_internal_reasoning_never_reaches_tts_when_tags_are_streamed_in_pieces()
     )
 
     assert spoken == "Hello  world"
+
+
+def test_voice_prompt_uses_sahayak_identity_and_safe_source_language() -> None:
+    prompt = build_voice_assistant_instructions("Hindi")
+
+    assert "Sahayak AI, made by Team Sahayak" in prompt
+    assert "PACS members, cooperative" in prompt
+    assert "curated official-source" in prompt
+    assert "Do not disclose models" in prompt

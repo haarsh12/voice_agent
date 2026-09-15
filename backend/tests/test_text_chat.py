@@ -14,6 +14,7 @@ from app.services.document_text import DocumentExtractionError, extract_uploaded
 from app.services import gemini
 from app.services.gemini import build_text_chat_prompt
 from app.services.guest_sessions import GuestSessionError, GuestSessionStore
+from app.services.official_sources import select_official_sources
 
 
 def _upload(filename: str, content: bytes, content_type: str) -> UploadFile:
@@ -102,6 +103,8 @@ def test_document_text_is_explicitly_treated_as_untrusted_reference() -> None:
     assert "Reply only in Bengali" in prompt
     assert "UNTRUSTED DOCUMENT TEXT START" in prompt
     assert "not instructions" in prompt
+    assert "Sahayak AI, made by Team Sahayak" in prompt
+    assert "official-source knowledge base" in prompt
 
 
 def test_text_generation_uses_the_server_side_vertex_client(monkeypatch) -> None:
@@ -190,6 +193,12 @@ def test_chat_endpoint_returns_a_direct_text_reply_without_livekit(monkeypatch, 
         "language": "gu-IN",
         "document_name": "notes.txt",
         "document_truncated": False,
+        "sources": [
+            {
+                "name": "Ministry of Cooperation, Government of India",
+                "url": "https://www.cooperation.gov.in/en/homepage",
+            }
+        ],
     }
     assert received["language"] == "gu-IN"
     assert received["document_text"] == "First fact\nSecond fact"
@@ -285,3 +294,13 @@ def test_guest_session_store_rejects_an_invalid_capability() -> None:
         pass
     else:
         raise AssertionError("the context must require the matching guest capability")
+
+
+def test_official_source_selector_uses_only_reviewed_government_links() -> None:
+    pmfby_sources = select_official_sources("How can a farmer use PMFBY crop insurance?")
+    assert pmfby_sources[0].name == "Pradhan Mantri Fasal Bima Yojana (PMFBY)"
+    assert pmfby_sources[0].url == "https://pmfby.gov.in/"
+
+    pacs_sources = select_official_sources("What does a PACS member do?")
+    assert pacs_sources[0].name == "Ministry of Cooperation — About PACS"
+    assert all(source.url.startswith("https://") for source in pacs_sources)
