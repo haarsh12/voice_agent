@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 import secrets
+from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,6 +55,13 @@ class Settings(BaseSettings):
     fast2sms_api_key: SecretStr | None = None
     fast2sms_base_url: str = "https://www.fast2sms.com/dev/bulkV2"
 
+    # WebAuthn keeps biometric data on the member's device. Production must
+    # name its real HTTPS origin and RP ID; local development can use one of
+    # the existing explicit Vite origins.
+    web_authn_rp_name: str = "Sahayak AI"
+    web_authn_rp_id: str = ""
+    web_authn_origins: str = ""
+
     # Google Cloud STT configuration
     google_application_credentials: str | None = None
     google_stt_language: str = "hi-IN"
@@ -90,6 +98,51 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_web_authn_origins(self) -> list[str]:
+        configured = [origin.strip() for origin in self.web_authn_origins.split(",") if origin.strip()]
+        return configured or self.allowed_origins
+
+    def web_authn_rp_id_for_origin(self, origin: str | None) -> str | None:
+        """Return an RP ID only for a trusted WebAuthn browser origin.
+
+        Vite moves to the next free port when 5173 is already in use.  It is
+        still the same local Sahayak site, so development accepts loopback
+        origins on any port.  This exception is intentionally limited to
+        localhost/loopback; LAN and public origins must remain explicitly
+        configured (and production requires HTTPS).
+        """
+
+        if not origin:
+            return None
+        parsed = urlparse(origin)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        is_origin = (
+            parsed.scheme in {"http", "https"}
+            and bool(host)
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in {"", "/"}
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        )
+        if not is_origin:
+            return None
+        is_loopback = host in {"localhost", "127.0.0.1", "::1"}
+        is_configured_origin = origin in self.allowed_web_authn_origins
+        if not is_configured_origin and not (not self.is_production and is_loopback):
+            return None
+        if self.is_production and parsed.scheme != "https":
+            return None
+
+        rp_id = self.web_authn_rp_id.strip().lower().rstrip(".") or (
+            host if not self.is_production else ""
+        )
+        if not rp_id or (host != rp_id and not host.endswith(f".{rp_id}")):
+            return None
+        return rp_id
 
     @property
     def cors_origin_regex(self) -> str | None:
@@ -160,6 +213,13 @@ class Settings(BaseSettings):
             raise MissingConfigurationError("OTP_DEMO_MODE must be disabled in production.")
         if not self.allowed_origins or any(not origin.startswith("https://") for origin in self.allowed_origins):
             raise MissingConfigurationError("CORS_ORIGINS must contain explicit HTTPS origins in production.")
+        if self.web_authn_origins and (
+            not self.web_authn_rp_id.strip()
+            or any(not origin.startswith("https://") for origin in self.allowed_web_authn_origins)
+        ):
+            raise MissingConfigurationError(
+                "WEB_AUTHN_RP_ID and HTTPS WEB_AUTHN_ORIGINS are required when device biometric sign-in is enabled."
+            )
 
     @property
     def keyterms(self) -> list[str]:

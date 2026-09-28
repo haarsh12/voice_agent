@@ -17,6 +17,9 @@ Chatbot**.
   common image files. Guest content stays in memory and expires.
 - Mobile-number OTP UI, backend-owned JWT session cookies, profile onboarding
   and logout revocation.
+- Optional device Face ID / biometric sign-in through WebAuthn passkeys. The
+  device performs biometric matching; Sahayak stores no face photo, template,
+  embedding or private key.
 - Guest mode: voice and language selection remain available; Dashboard,
   Documents, Schemes, Notifications, Grievances and Profile visibly prompt
   guests to sign in.
@@ -34,6 +37,7 @@ Chatbot**.
     FastAPI
       ├─ LiveKit browser-token and guest-session endpoints
       ├─ mobile OTP hashing, expiry, attempt limits and SMS delivery
+      ├─ WebAuthn public-credential verification and one-use challenges
       ├─ HttpOnly JWT session cookie + CSRF validation + logout invalidation
       ├─ account/profile authorization
       └─ existing Vertex/LiveKit voice and document-query services
@@ -54,7 +58,9 @@ development settings:
     DATABASE_URL=postgresql://...
     JWT_SECRET_KEY=a-long-random-server-secret
     OTP_DEMO_MODE=true
-    OTP_DEMO_CODE=624251
+OTP_DEMO_CODE=624251
+WEB_AUTHN_RP_ID=app.example.in
+WEB_AUTHN_ORIGINS=https://app.example.in
 
 The demo OTP is generated and verified only by FastAPI. APP_ENV=production
 refuses to start while OTP_DEMO_MODE=true. Disable demo mode and configure an
@@ -65,6 +71,15 @@ frontend/.env or a VITE_ variable.
 Apply the SQL migration with an administrator database connection before using
 mobile accounts. It explicitly denies anon and authenticated browser roles
 from reading account and OTP tables.
+
+Apply `supabase/migrations/20260927_add_webauthn_face_sign_in.sql` after the
+account migration to enable device biometric sign-in in a hosted database.
+Set the WebAuthn origin and RP ID to the exact public HTTPS site before
+deployment. Face ID setup requires a fresh mobile-OTP verification, stores a
+device-specific public credential, expires each challenge after five minutes,
+requires local user verification, checks the authenticator counter to detect
+cloned credentials, and can be removed from the profile. A member can always
+fall back to mobile OTP; biometric matching itself never leaves their device.
 
 The frontend only needs:
 

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 UserType = Literal[
@@ -111,7 +111,85 @@ class ProfileResponse(BaseModel):
     user_type: UserType | None
     cooperative_role: str | None
     needs_onboarding: bool
+    face_id_enabled: bool
 
 
 class VerifyOTPResponse(ProfileResponse):
     is_new_user: bool
+
+
+class WebAuthnOptionsResponse(BaseModel):
+    ceremony_id: str
+    public_key: dict[str, Any]
+
+
+class _WebAuthnPayload(BaseModel):
+    """Strictly bounded JSON returned by the browser WebAuthn APIs."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    id: str = Field(min_length=16, max_length=1024, pattern=r"^[A-Za-z0-9_-]+$")
+    raw_id: str = Field(min_length=16, max_length=1024, alias="rawId", pattern=r"^[A-Za-z0-9_-]+$")
+    type: Literal["public-key"]
+    client_extension_results: dict[str, Any] = Field(
+        default_factory=dict, alias="clientExtensionResults"
+    )
+    authenticator_attachment: Literal["platform", "cross-platform"] | None = Field(
+        default=None, alias="authenticatorAttachment"
+    )
+
+    @field_validator("id", "raw_id")
+    @classmethod
+    def matching_credential_ids(cls, value: str) -> str:
+        return value
+
+
+class WebAuthnRegistrationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_data_json: str = Field(
+        min_length=16, max_length=16_384, alias="clientDataJSON", pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    attestation_object: str = Field(
+        min_length=16, max_length=65_536, alias="attestationObject", pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    transports: list[Literal["usb", "nfc", "ble", "internal", "hybrid", "smart-card"]] = Field(
+        default_factory=list, max_length=6
+    )
+
+
+class WebAuthnRegistrationCredential(_WebAuthnPayload):
+    response: WebAuthnRegistrationResponse
+
+
+class WebAuthnAuthenticationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    client_data_json: str = Field(
+        min_length=16, max_length=16_384, alias="clientDataJSON", pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    authenticator_data: str = Field(
+        min_length=16, max_length=16_384, alias="authenticatorData", pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    signature: str = Field(min_length=16, max_length=16_384, pattern=r"^[A-Za-z0-9_-]+$")
+    user_handle: str | None = Field(
+        default=None, max_length=1024, alias="userHandle", pattern=r"^[A-Za-z0-9_-]+$"
+    )
+
+
+class WebAuthnAuthenticationCredential(_WebAuthnPayload):
+    response: WebAuthnAuthenticationResponse
+
+
+class WebAuthnRegistrationFinishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ceremony_id: str = Field(min_length=32, max_length=96, pattern=r"^[A-Za-z0-9_-]+$")
+    credential: WebAuthnRegistrationCredential
+
+
+class WebAuthnAuthenticationFinishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ceremony_id: str = Field(min_length=32, max_length=96, pattern=r"^[A-Za-z0-9_-]+$")
+    credential: WebAuthnAuthenticationCredential

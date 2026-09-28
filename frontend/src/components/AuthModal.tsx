@@ -1,8 +1,9 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, LoaderCircle, LogIn, MessageCircleMore, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Fingerprint, LoaderCircle, LogIn, MessageCircleMore, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
 import type { MobileAuthIntent, RegistrationPayload } from '../lib/api'
+import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
 import { USER_TYPES, type SahayakProfile, type UserType } from '../types/api'
 
 type AuthModalProps = {
@@ -64,7 +65,7 @@ function IndianNumber({ value, onChange }: { value: string; onChange: (value: st
 }
 
 export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps) {
-  const [step, setStep] = useState<'choice' | 'login' | 'register' | 'otp'>('choice')
+  const [step, setStep] = useState<'choice' | 'login' | 'register' | 'otp' | 'face-id'>('choice')
   const [intent, setIntent] = useState<MobileAuthIntent | null>(null)
   const [mobile, setMobile] = useState('')
   const [registration, setRegistration] = useState<RegistrationDraft>(emptyRegistration)
@@ -73,6 +74,8 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
   const [notice, setNotice] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(0)
+  const [verifiedProfile, setVerifiedProfile] = useState<SahayakProfile | null>(null)
+  const [deviceBiometricsAvailable, setDeviceBiometricsAvailable] = useState(false)
 
   useEffect(() => {
     if (!secondsLeft) return
@@ -91,6 +94,11 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
     setNotice(null)
     setIsSubmitting(false)
     setSecondsLeft(0)
+    setVerifiedProfile(null)
+  }, [isOpen])
+
+  useEffect(() => {
+    setDeviceBiometricsAvailable(supportsDeviceBiometrics())
   }, [isOpen])
 
   if (!isOpen) return null
@@ -176,10 +184,50 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
     setIsSubmitting(true)
     try {
       const profile = await auth.verifyOtp(mobile, otp, intent, completedRegistration ?? undefined)
-      onVerified(profile)
-      onClose()
+      // A registration is the one moment we know the member has just proved
+      // control of their number, so optional device enrollment is allowed.
+      if (intent === 'register' && deviceBiometricsAvailable) {
+        setVerifiedProfile(profile)
+        setStep('face-id')
+        setNotice(null)
+      } else {
+        completeAccess(profile)
+      }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'We could not verify the OTP.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  function completeAccess(profile: SahayakProfile): void {
+    onVerified(profile)
+    onClose()
+  }
+
+  async function setUpFaceId(): Promise<void> {
+    setError(null)
+    setNotice(null)
+    setIsSubmitting(true)
+    try {
+      const profile = await auth.registerFaceId()
+      completeAccess(profile)
+    } catch (caughtError) {
+      setError(biometricErrorMessage(caughtError, 'We could not set up Face ID. You can try again or skip it for now.'))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  async function signInWithFaceId(): Promise<void> {
+    setError(null)
+    setNotice(null)
+    setIsSubmitting(true)
+    try {
+      const profile = await auth.signInWithFaceId()
+      completeAccess(profile)
+    } catch (caughtError) {
+      setError(biometricErrorMessage(caughtError, 'Face ID sign-in was not completed. You can use mobile OTP instead.'))
     } finally {
       setIsSubmitting(false)
     }
@@ -223,7 +271,15 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
                 <span><b>Create account</b><small>I’m new to Sahayak AI</small></span>
                 <ArrowRight aria-hidden="true" size={18} />
               </button>
+              {deviceBiometricsAvailable && (
+                <button className="auth-choice auth-choice--face" disabled={isSubmitting} onClick={() => void signInWithFaceId()} type="button">
+                  <span className="auth-choice__icon auth-choice__icon--face"><Fingerprint size={20} /></span>
+                  <span><b>Sign in with Face ID</b><small>Use Face ID, Touch ID, or your device screen lock</small></span>
+                  {isSubmitting ? <LoaderCircle className="spin" size={18} /> : <ArrowRight aria-hidden="true" size={18} />}
+                </button>
+              )}
             </div>
+            {!deviceBiometricsAvailable && <p className="auth-biometric-note">Face ID is available on a supported device through a secure HTTPS connection.</p>}
           </>
         ) : step === 'login' ? (
           <>
@@ -239,6 +295,12 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
                 {isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}
                 {isSubmitting ? 'Sending OTP…' : 'Continue to log in'}
               </button>
+              {deviceBiometricsAvailable && (
+                <>
+                  <p className="auth-divider"><span />or<span /></p>
+                  <button className="secondary-action auth-form__submit auth-face-button" disabled={isSubmitting} onClick={() => void signInWithFaceId()} type="button"><Fingerprint size={18} /> Sign in with Face ID</button>
+                </>
+              )}
             </form>
           </>
         ) : step === 'register' ? (
@@ -266,7 +328,7 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
               </button>
             </form>
           </>
-        ) : (
+        ) : step === 'otp' ? (
           <>
             <button className="auth-modal__back" onClick={() => { setStep(intent === 'register' ? 'register' : 'login'); setError(null); setNotice(null) }} type="button"><ArrowLeft size={16} /> Edit your details</button>
             <div className="auth-modal__intro">
@@ -279,6 +341,20 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
               <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">{isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}{isSubmitting ? 'Verifying…' : intent === 'register' ? 'Verify and create account' : 'Verify and log in'}</button>
               <button className="text-action" disabled={secondsLeft > 0 || isSubmitting} onClick={() => intent && void requestOtp(intent)} type="button">{secondsLeft ? 'Resend OTP in ' + secondsLeft + 's' : 'Resend OTP'}</button>
             </form>
+          </>
+        ) : (
+          <>
+            <div className="auth-modal__intro auth-face-setup">
+              <span className="auth-face-setup__icon"><Fingerprint size={27} /></span>
+              <p className="section-kicker">Optional security step</p>
+              <h2 id="auth-title">Set up Face ID?</h2>
+              <p>Use your device’s Face ID, Touch ID, or screen lock for a faster, private sign-in next time.</p>
+              <p className="auth-biometric-note">Your face data and private key stay on your device. Sahayak stores only a public sign-in credential.</p>
+            </div>
+            <div className="auth-face-setup__actions">
+              <button className="primary-action auth-form__submit" disabled={isSubmitting} onClick={() => void setUpFaceId()} type="button">{isSubmitting ? <LoaderCircle className="spin" size={18} /> : <Fingerprint size={18} />}{isSubmitting ? 'Setting up…' : 'Set up Face ID'}</button>
+              <button className="text-action" disabled={isSubmitting} onClick={() => verifiedProfile && completeAccess(verifiedProfile)} type="button">Skip for now</button>
+            </div>
           </>
         )}
 

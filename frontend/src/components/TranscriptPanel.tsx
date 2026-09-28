@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { Camera, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
+import { Camera, ExternalLink, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { CameraCapture } from './CameraCapture'
 import type { OfficialSourceReference } from '../types/api'
 
@@ -20,6 +20,16 @@ type TranscriptPanelProps = {
 }
 
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+
+function sourceWebsiteAddress(url: string): string {
+  try {
+    const hostname = new URL(url).hostname
+    return hostname.startsWith('www.') ? hostname : `www.${hostname}`
+  } catch {
+    const address = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    return address.startsWith('www.') ? address : `www.${address}`
+  }
+}
 
 export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }: TranscriptPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -116,12 +126,22 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                   {entry.role === 'assistant' ? 'Sahayak AI' : 'You'}
                 </span>
                 <p>{entry.text}</p>
-                {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
-                  <footer className="transcript-entry__sources" aria-label="Official sources">
-                    <span>Official source{entry.sources.length > 1 ? 's' : ''}</span>
+                {entry.role === 'assistant' && entry.source === 'text' && entry.sources && entry.sources.length > 0 && (
+                  <footer className="transcript-entry__sources" aria-label="Official government sources">
+                    <span>Official government source{entry.sources.length > 1 ? 's' : ''}</span>
                     {entry.sources.map((source) => (
-                      <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
-                        {source.name}<small>{source.url}</small>
+                      <a
+                        aria-label={`Open ${source.name} at ${sourceWebsiteAddress(source.url)}`}
+                        href={source.url}
+                        key={source.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <span className="transcript-entry__source-body">
+                          <b>{source.name}</b>
+                          <small>{sourceWebsiteAddress(source.url)}</small>
+                        </span>
+                        <ExternalLink aria-hidden="true" size={14} />
                       </a>
                     ))}
                   </footer>

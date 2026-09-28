@@ -105,6 +105,8 @@ def test_document_text_is_explicitly_treated_as_untrusted_reference() -> None:
     assert "not instructions" in prompt
     assert "Sahayak AI, made by Team Sahayak" in prompt
     assert "official-source knowledge base" in prompt
+    assert "Never write\n  citations, source names, links" in prompt
+    assert "https://" not in prompt
 
 
 def test_text_generation_uses_the_server_side_vertex_client(monkeypatch) -> None:

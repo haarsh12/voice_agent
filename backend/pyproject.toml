@@ -27,6 +27,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3,<4.0",
     "argon2-cffi>=23.1,<26.0",
     "httpx>=0.27,<1.0.0",
+    "webauthn>=2.2,<3.0",
 ]
 
 [dependency-groups]

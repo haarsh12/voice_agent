@@ -6,6 +6,8 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 
 from fastapi import HTTPException, status
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.auth.models import AuthBase
@@ -28,6 +30,36 @@ def get_session_factory() -> async_sessionmaker[AsyncSession] | None:
     return async_sessionmaker(engine, expire_on_commit=False, autoflush=False) if engine else None
 
 
+def _upgrade_development_sqlite_schema(connection: Connection) -> None:
+    """Add fields introduced after a local SQLite prototype was first created.
+
+    ``create_all`` creates missing tables but intentionally never alters an
+    existing one. Local Sahayak databases predate the optional passkey fields,
+    so an ordinary account lookup would otherwise crash before the user can
+    register or sign in. Hosted databases remain migration-owned.
+    """
+
+    if "sahayak_accounts" not in inspect(connection).get_table_names():
+        return
+
+    columns = {column["name"] for column in inspect(connection).get_columns("sahayak_accounts")}
+    upgrades = {
+        "face_id_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+        "last_mobile_verification_at": "DATETIME",
+    }
+    for name, definition in upgrades.items():
+        if name not in columns:
+            connection.execute(text(f"ALTER TABLE sahayak_accounts ADD COLUMN {name} {definition}"))
+
+
+async def ensure_development_auth_schema(engine: AsyncEngine) -> None:
+    """Create and safely upgrade the Git-ignored local authentication schema."""
+
+    async with engine.begin() as connection:
+        await connection.run_sync(AuthBase.metadata.create_all)
+        await connection.run_sync(_upgrade_development_sqlite_schema)
+
+
 async def get_auth_session() -> AsyncGenerator[AsyncSession, None]:
     settings = get_settings()
     engine = get_engine()
@@ -40,7 +72,6 @@ async def get_auth_session() -> AsyncGenerator[AsyncSession, None]:
     # Development uses a local, Git-ignored SQLite file for a usable prototype.
     # Hosted environments must run migrations explicitly instead.
     if not settings.is_production and settings.async_database_url and settings.async_database_url.startswith("sqlite"):
-        async with engine.begin() as connection:
-            await connection.run_sync(AuthBase.metadata.create_all)
+        await ensure_development_auth_schema(engine)
     async with session_factory() as session:
         yield session

@@ -5,6 +5,7 @@ import {
   ChevronRight,
   FilePlus2,
   FileText,
+  Fingerprint,
   Landmark,
   Leaf,
   LoaderCircle,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
+import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
 import type { SahayakProfile, UserType } from '../types/api'
 import type { AppRoute } from '../types/navigation'
 
@@ -134,12 +136,51 @@ export function ProfileView({ auth, profile }: { auth: SahayakAuth; profile: Sah
   const [values, setValues] = useState({ full_name: profile.full_name ?? '', state: profile.state ?? '', district: profile.district ?? '', village_or_town: profile.village_or_town ?? '', address: profile.address ?? '', cooperative_role: profile.cooperative_role ?? '', user_type: profile.user_type ?? 'other' as UserType })
   const [notice, setNotice] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isUpdatingFaceId, setIsUpdatingFaceId] = useState(false)
+  const [faceIdNotice, setFaceIdNotice] = useState<string | null>(null)
+  const deviceBiometricsAvailable = supportsDeviceBiometrics()
+
   async function save(event: FormEvent<HTMLFormElement>): Promise<void> { event.preventDefault(); setIsSaving(true); setNotice(null); try { await auth.saveProfile(values); setNotice('Profile updated.'); setIsEditing(false) } catch (error) { setNotice(error instanceof Error ? error.message : 'We could not update your profile.') } finally { setIsSaving(false) } }
+
+  async function updateFaceId(): Promise<void> {
+    setFaceIdNotice(null)
+    setIsUpdatingFaceId(true)
+    try {
+      if (profile.face_id_enabled) {
+        await auth.removeFaceId()
+        setFaceIdNotice('Face ID has been removed from this Sahayak account.')
+      } else {
+        await auth.registerFaceId()
+        setFaceIdNotice('Face ID is ready for your next sign-in on this device.')
+      }
+    } catch (error) {
+      setFaceIdNotice(biometricErrorMessage(error, 'We could not update Face ID. Please try again.'))
+    } finally {
+      setIsUpdatingFaceId(false)
+    }
+  }
+
   return (
     <main className="portal-page"><PageTitle eyebrow="Your profile" title="Your Sahayak details." text="Your verified mobile number is your account identity and cannot be edited here." />
       <section className="profile-card"><div className="profile-card__identity"><span>{profileName(profile).slice(0, 1).toUpperCase()}</span><div><h2>{profile.full_name || 'Complete your profile'}</h2><p>+91 {profile.phone_number.replace('+91', '')}</p></div><button className="secondary-action" onClick={() => setIsEditing((editing) => !editing)} type="button">{isEditing ? 'Cancel' : 'Edit profile'}</button></div>
         {isEditing ? <form className="profile-form" onSubmit={(event) => void save(event)}><div className="form-grid"><label>Name<input onChange={(event) => setValues({ ...values, full_name: event.target.value })} value={values.full_name} /></label><label>State<input onChange={(event) => setValues({ ...values, state: event.target.value })} value={values.state} /></label><label>District / city<input onChange={(event) => setValues({ ...values, district: event.target.value })} value={values.district} /></label><label>Town / village<input onChange={(event) => setValues({ ...values, village_or_town: event.target.value })} value={values.village_or_town} /></label></div><label>Address <span className="field-optional">Optional</span><textarea onChange={(event) => setValues({ ...values, address: event.target.value })} rows={3} value={values.address} /></label><div className="form-grid"><label>Your role<select onChange={(event) => setValues({ ...values, user_type: event.target.value as UserType })} value={values.user_type}><option value="cooperative_member">Cooperative member</option><option value="farmer">Farmer</option><option value="pacs_member">PACS member</option><option value="cooperative_official">Cooperative official</option><option value="rural_stakeholder">Rural stakeholder</option><option value="other">Other</option></select></label><label>Cooperative role <span className="field-optional">Optional</span><input onChange={(event) => setValues({ ...values, cooperative_role: event.target.value })} value={values.cooperative_role} /></label></div><button className="primary-action" disabled={isSaving} type="submit">{isSaving ? <LoaderCircle className="spin" size={17} /> : null}{isSaving ? 'Saving…' : 'Save changes'}</button></form> : <dl className="profile-details"><div><dt>State</dt><dd>{profile.state || '—'}</dd></div><div><dt>District / city</dt><dd>{profile.district || '—'}</dd></div><div><dt>Town / village</dt><dd>{profile.village_or_town || '—'}</dd></div><div><dt>Role</dt><dd>{profile.user_type?.replaceAll('_', ' ') || '—'}</dd></div><div><dt>Cooperative role</dt><dd>{profile.cooperative_role || '—'}</dd></div><div><dt>Address</dt><dd>{profile.address || '—'}</dd></div></dl>}
         {notice && <p className="inline-notice">{notice}</p>}
+      </section>
+      <section className="profile-security-card" aria-labelledby="face-id-heading">
+        <span className="profile-security-card__icon"><Fingerprint size={23} /></span>
+        <div>
+          <p className="section-kicker">Sign-in security</p>
+          <h2 id="face-id-heading">Face ID and device sign-in</h2>
+          <p>{profile.face_id_enabled ? 'Face ID is enabled for this Sahayak account on a registered device.' : 'Set up Face ID, Touch ID, or your device screen lock for faster sign-in.'}</p>
+          {!profile.face_id_enabled && <small>Your face data and private key remain on your device. Sahayak stores only a public credential.</small>}
+          {!profile.face_id_enabled && !deviceBiometricsAvailable && <small className="profile-security-card__warning">Use a supported device over HTTPS to set up Face ID.</small>}
+          {faceIdNotice && <p className="profile-security-card__feedback" role="status">{faceIdNotice}</p>}
+        </div>
+        {profile.face_id_enabled ? (
+          <button className="secondary-action" disabled={isUpdatingFaceId} onClick={() => void updateFaceId()} type="button">{isUpdatingFaceId ? <LoaderCircle className="spin" size={16} /> : null}{isUpdatingFaceId ? 'Removing…' : 'Remove Face ID'}</button>
+        ) : (
+          <button className="primary-action" disabled={isUpdatingFaceId || !deviceBiometricsAvailable} onClick={() => void updateFaceId()} type="button">{isUpdatingFaceId ? <LoaderCircle className="spin" size={16} /> : <Fingerprint size={16} />}{isUpdatingFaceId ? 'Setting up…' : 'Set up Face ID'}</button>
+        )}
       </section>
     </main>
   )

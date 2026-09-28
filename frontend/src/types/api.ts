@@ -44,6 +44,7 @@ export type SahayakProfile = {
   user_type: UserType | null
   cooperative_role: string | null
   needs_onboarding: boolean
+  face_id_enabled: boolean
 }
 
 export type VerifiedProfile = SahayakProfile & {

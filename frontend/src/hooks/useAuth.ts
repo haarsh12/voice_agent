@@ -2,13 +2,19 @@ import { useCallback, useEffect, useState } from 'react'
 
 import {
   getProfile,
+  finishFaceIdAuthentication,
+  finishFaceIdRegistration,
+  removeFaceId,
   requestOtp,
   signOut,
+  startFaceIdAuthentication,
+  startFaceIdRegistration,
   updateProfile,
   verifyOtp,
   type MobileAuthIntent,
   type RegistrationPayload,
 } from '../lib/api'
+import { createDeviceCredential, requestDeviceCredential } from '../lib/webauthn'
 import type { ProfileUpdate, SahayakProfile, VerifiedProfile } from '../types/api'
 
 export type AuthStatus = 'loading' | 'guest' | 'authenticated'
@@ -24,6 +30,9 @@ export type SahayakAuth = {
     registration?: RegistrationPayload,
   ) => Promise<VerifiedProfile>
   saveProfile: (payload: ProfileUpdate) => Promise<SahayakProfile>
+  registerFaceId: () => Promise<SahayakProfile>
+  signInWithFaceId: () => Promise<SahayakProfile>
+  removeFaceId: () => Promise<SahayakProfile>
   signOut: () => Promise<void>
   refresh: () => Promise<SahayakProfile | null>
 }
@@ -70,6 +79,31 @@ export function useAuth(): SahayakAuth {
     return profile
   }, [])
 
+  const registerFaceId = useCallback(async (): Promise<SahayakProfile> => {
+    const options = await startFaceIdRegistration()
+    const credential = await createDeviceCredential(options.public_key)
+    const profile = await finishFaceIdRegistration(options.ceremony_id, credential)
+    setUser(profile)
+    setStatus('authenticated')
+    return profile
+  }, [])
+
+  const signInWithFaceId = useCallback(async (): Promise<SahayakProfile> => {
+    const options = await startFaceIdAuthentication()
+    const credential = await requestDeviceCredential(options.public_key)
+    const profile = await finishFaceIdAuthentication(options.ceremony_id, credential)
+    setUser(profile)
+    setStatus('authenticated')
+    return profile
+  }, [])
+
+  const forgetFaceId = useCallback(async (): Promise<SahayakProfile> => {
+    const profile = await removeFaceId()
+    setUser(profile)
+    setStatus('authenticated')
+    return profile
+  }, [])
+
   const logout = useCallback(async (): Promise<void> => {
     try {
       await signOut()
@@ -79,5 +113,16 @@ export function useAuth(): SahayakAuth {
     }
   }, [])
 
-  return { status, user, requestOtp: sendOtp, verifyOtp: confirmOtp, saveProfile, signOut: logout, refresh }
+  return {
+    status,
+    user,
+    requestOtp: sendOtp,
+    verifyOtp: confirmOtp,
+    saveProfile,
+    registerFaceId,
+    signInWithFaceId,
+    removeFaceId: forgetFaceId,
+    signOut: logout,
+    refresh,
+  }
 }

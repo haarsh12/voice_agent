@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -27,6 +27,11 @@ class Account(AuthBase):
     profile_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # A WebAuthn credential is a device-held key protected by Face ID, Touch
+    # ID, Windows Hello, or similar local verification. This flag is only a
+    # quick profile-status indicator; the credential table remains authoritative.
+    face_id_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_mobile_verification_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -47,6 +52,51 @@ class OneTimePasscode(AuthBase):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WebAuthnCredential(AuthBase):
+    """Public part of one device-bound biometric credential.
+
+    No face image, face embedding, biometric template, or private key is ever
+    sent to or stored by Sahayak. The operating system retains those secrets.
+    """
+
+    __tablename__ = "sahayak_webauthn_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("sahayak_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    credential_id: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True, index=True)
+    credential_public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    transports: Mapped[str | None] = mapped_column(String(128))
+    device_type: Mapped[str | None] = mapped_column(String(32))
+    backed_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebAuthnCeremony(AuthBase):
+    """Short-lived, one-use WebAuthn challenge state kept server-side."""
+
+    __tablename__ = "sahayak_webauthn_ceremonies"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sahayak_accounts.id", ondelete="CASCADE"), index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    challenge: Mapped[str] = mapped_column(String(128), nullable=False)
+    rp_id: Mapped[str] = mapped_column(String(253), nullable=False)
+    origin: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
