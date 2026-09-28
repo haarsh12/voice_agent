@@ -86,6 +86,57 @@ The frontend only needs:
     VITE_AGENT_NAME=sahayak-ai
     VITE_API_BASE_URL=http://127.0.0.1:8000
 
+## Verified Knowledge Engine
+
+The data engine is intentionally server-owned and source-grounded. It replaces
+the former keyword-to-link catalogue: a source card is returned only when the
+answer has retrieved a current chunk from a reviewed source document.
+
+    approved source registry
+      → scheduled incremental check (separate worker)
+      → fetch + validate + hash changed content only
+      → extract + semantic chunk
+      → embed + Qdrant index
+      → relational version/freshness validation
+      → Gemini explanation + real citation
+
+The initial registry contains exactly the ten approved source groups from the
+project brief: Ministry of Cooperation, National Cooperative Database, CRCS,
+India Code, State RCS / Cooperative Departments, PMFBY, Ministry of
+Agriculture & Farmers Welfare, myScheme, RBI, and CPGRAMS. It starts narrowly
+with reviewed registry entry URLs; it does not crawl arbitrary outbound links,
+search results, social media, or user-provided web pages.
+
+The online chat path does not fetch or ingest documents. It searches only the
+backend-configured Qdrant collection, then verifies each result against the
+PostgreSQL document lifecycle before it can be cited. CURRENT versions are
+eligible; EXPIRED and SUPERSEDED versions are not. Scheme, legal, financial,
+deadline, eligibility, claim, procedure, contact, and notification requests
+without current verified evidence receive a transparent abstention rather than
+a model-generated official-looking answer.
+
+### Deploying the knowledge engine
+
+1. Apply [20260928_add_verified_knowledge_engine.sql](/D:/voice_stream/supabase/migrations/20260928_add_verified_knowledge_engine.sql) after the existing account migrations.
+2. Configure `QDRANT_URL`, optional `QDRANT_API_KEY`,
+   `QDRANT_COLLECTION`, `GOOGLE_APPLICATION_CREDENTIALS`, and
+   `KNOWLEDGE_EMBEDDING_MODEL` in the backend deployment secret store. Do not
+   put any of them in `frontend/.env` or a `VITE_` variable.
+3. Run a separate scheduled worker, for example:
+
+       cd backend
+       .\.venv\Scripts\python.exe -m app.knowledge.cli
+
+   The worker uses the registry's individual intervals: daily for dynamic
+   sources, weekly for National Cooperative Database and India Code. It sends
+   conditional requests when ETag/Last-Modified metadata exists and only
+   chunks, embeds, and indexes changed document hashes. An operator can run
+   one reviewed source explicitly with `-m app.knowledge.cli --source pmfby`.
+
+Qdrant credentials, source content, ingestion diagnostics, and database
+records remain server-side. The browser receives only the answer, its evidence
+status, and citation metadata needed to open the source document.
+
 ## Run locally
 
     # Terminal 1

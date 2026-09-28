@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,10 +13,17 @@ from app.knowledge.adapters import DEFAULT_SOURCE_ADAPTER, SourceAdapter
 from app.knowledge.chunking import chunk_semantically
 from app.knowledge.contracts import DocumentStatus, SourceCheckResult
 from app.knowledge.extraction import SourceExtractionError, extract_source_document
-from app.knowledge.fetching import SourceFetchError, fetch_approved_document, parse_http_date
+from app.knowledge.fetching import (
+    SourceFetchError,
+    conditional_request_headers,
+    fetch_approved_document,
+    parse_http_date,
+)
 from app.knowledge.registry import SOURCES_BY_KEY, ApprovedSourceDefinition
 from app.knowledge.repository import KnowledgeRepository
 from app.knowledge.vectors import QdrantVectorStore, VectorRecord, VectorStoreError, VertexEmbeddingProvider
+
+logger = logging.getLogger("sahayak.knowledge.ingestion")
 
 
 class KnowledgeIngestionService:
@@ -93,13 +101,24 @@ class KnowledgeIngestionService:
             changed_documents=changed,
             failure_code="source_document_failure" if failures else None,
         )
+        logger.info(
+            "knowledge_source_check_complete source=%s result=%s checked=%s changed=%s failures=%s",
+            source.key,
+            result.value,
+            checked,
+            changed,
+            failures,
+        )
         return result
 
     async def _check_document(self, source: ApprovedSourceDefinition, url: str) -> bool:
         """Fetch → compare hash → extract → chunk → embed → index one source document."""
 
         latest = await self.repository.latest_version(source_key=source.key, canonical_url=url)
-        headers = _conditional_headers(latest.source_metadata if latest else {})
+        headers = conditional_request_headers(
+            etag=latest.source_metadata.get("etag") if latest else None,
+            last_modified=latest.source_metadata.get("last_modified") if latest else None,
+        )
         fetched = await fetch_approved_document(
             url=url,
             source=source,
@@ -161,8 +180,10 @@ class KnowledgeIngestionService:
         if len(vectors) != len(stored_chunks):
             raise VectorStoreError("embedding_chunk_count_mismatch")
         await asyncio.to_thread(self.vector_store.ensure_collection)
-        if previous_point_ids:
-            await asyncio.to_thread(self.vector_store.set_document_status, previous_point_ids, DocumentStatus.SUPERSEDED.value)
+        # Index the replacement before retiring an old Qdrant payload. Qdrant
+        # and PostgreSQL cannot share one transaction, so this ordering means
+        # an indexing failure leaves the old CURRENT database/version path
+        # intact. The relational retrieval check remains the authority.
         await asyncio.to_thread(
             self.vector_store.upsert,
             [
@@ -183,15 +204,18 @@ class KnowledgeIngestionService:
             ],
         )
         await self.repository.session.commit()
+        if previous_point_ids:
+            try:
+                await asyncio.to_thread(
+                    self.vector_store.set_document_status,
+                    previous_point_ids,
+                    DocumentStatus.SUPERSEDED.value,
+                )
+            except VectorStoreError:
+                # The new CURRENT version is already durable and retrieval
+                # validates all hits against it relationally. Keeping an older
+                # point searchable for one check cycle is safe; it cannot be
+                # cited because its version is SUPERSEDED in PostgreSQL.
+                logger.warning("knowledge_vector_status_sync_deferred source=%s", source.key)
+                pass
         return True
-
-
-def _conditional_headers(metadata: dict[str, str]) -> dict[str, str]:
-    headers: dict[str, str] = {}
-    etag = metadata.get("etag")
-    last_modified = metadata.get("last_modified")
-    if etag:
-        headers["If-None-Match"] = etag
-    if last_modified:
-        headers["If-Modified-Since"] = last_modified
-    return headers

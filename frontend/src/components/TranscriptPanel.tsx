@@ -33,10 +33,10 @@ const evidenceStatusLabel: Record<EvidenceStatus, string> = {
 function sourceWebsiteAddress(url: string): string {
   try {
     const hostname = new URL(url).hostname
-    return hostname.startsWith('www.') ? hostname : `www.${hostname}`
+    return hostname
   } catch {
     const address = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
-    return address.startsWith('www.') ? address : `www.${address}`
+    return address
   }
 }
 

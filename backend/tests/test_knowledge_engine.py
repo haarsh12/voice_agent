@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth.models import AuthBase
 from app.knowledge.chunking import chunk_semantically
-from app.knowledge.contracts import DocumentStatus, RetrievalResult
+from app.knowledge.contracts import DocumentStatus, RetrievalResult, SourceValidationStatus
+from app.knowledge.models import KnowledgeSource
 from app.knowledge.policy import decide_response
 from app.knowledge.registry import SOURCE_REGISTRY, SOURCES_BY_KEY, is_approved_source_url
 from app.knowledge.repository import KnowledgeRepository
@@ -65,6 +65,27 @@ def test_policy_abstains_on_an_unverified_current_scheme_question() -> None:
     assert decision.abstention_message and "could not verify" in decision.abstention_message.casefold()
 
 
+def test_registry_sync_preserves_failed_source_operational_state() -> None:
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as connection:
+            await connection.run_sync(AuthBase.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            repository = KnowledgeRepository(session)
+            await repository.sync_source_registry()
+            source = await session.get(KnowledgeSource, "pmfby")
+            assert source is not None
+            source.validation_status = SourceValidationStatus.CHECK_FAILED.value
+            await session.commit()
+            await repository.sync_source_registry()
+            await session.refresh(source)
+            assert source.validation_status == SourceValidationStatus.CHECK_FAILED.value
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_document_versions_preserve_history_and_only_one_current_version() -> None:
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -75,6 +96,18 @@ def test_document_versions_preserve_history_and_only_one_current_version() -> No
             repository = KnowledgeRepository(session)
             await repository.sync_source_registry()
             first, created_first = await repository.record_document_version(
+                source_key="pmfby",
+                canonical_url="https://pmfby.gov.in/guidelines",
+                source_url="https://pmfby.gov.in/guidelines",
+                title="PMFBY Guidelines",
+                content_hash="a" * 64,
+                extraction_method="html",
+                is_ocr=False,
+                ocr_confidence=None,
+                source_metadata={},
+            )
+            await session.commit()
+            unchanged, created_unchanged = await repository.record_document_version(
                 source_key="pmfby",
                 canonical_url="https://pmfby.gov.in/guidelines",
                 source_url="https://pmfby.gov.in/guidelines",
@@ -101,6 +134,8 @@ def test_document_versions_preserve_history_and_only_one_current_version() -> No
             await session.refresh(first)
             await session.refresh(second)
             assert created_first and created_second
+            assert not created_unchanged
+            assert unchanged.id == first.id
             assert first.status == DocumentStatus.SUPERSEDED.value
             assert second.status == DocumentStatus.CURRENT.value
             assert second.version_number == first.version_number + 1

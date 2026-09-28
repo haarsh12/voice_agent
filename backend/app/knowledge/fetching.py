@@ -56,39 +56,39 @@ async def fetch_approved_document(
         for _ in range(4):
             await _validate_fetch_destination(current_url, source)
             try:
-                response = await client.get(current_url, headers=headers)
+                async with client.stream("GET", current_url, headers=headers) as response:
+                    if response.status_code == 304:
+                        return None
+                    if response.status_code in _REDIRECT_STATUS_CODES:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise SourceFetchError("source_redirect_missing_location")
+                        current_url = canonicalize_url(urljoin(current_url, location))
+                        # Conditional headers apply only to the initial representation.
+                        headers.pop("If-None-Match", None)
+                        headers.pop("If-Modified-Since", None)
+                        continue
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise SourceFetchError("source_http_error")
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower().strip()
+                    if content_type not in _SUPPORTED_CONTENT_TYPES:
+                        raise SourceFetchError("source_content_type_rejected")
+                    declared_size = response.headers.get("content-length")
+                    if declared_size and (not declared_size.isdigit() or int(declared_size) > settings.knowledge_max_document_bytes):
+                        raise SourceFetchError("source_document_too_large")
+                    content = await _read_bounded(response, settings.knowledge_max_document_bytes)
+                    return FetchedDocument(
+                        url=current_url,
+                        canonical_url=canonicalize_url(current_url),
+                        content=content,
+                        content_type=content_type,
+                        content_hash=hashlib.sha256(content).hexdigest(),
+                        etag=response.headers.get("etag"),
+                        last_modified=response.headers.get("last-modified"),
+                        fetched_at=datetime.now(UTC),
+                    )
             except (httpx.HTTPError, OSError) as error:
                 raise SourceFetchError("source_request_failed") from error
-            if response.status_code == 304:
-                return None
-            if response.status_code in _REDIRECT_STATUS_CODES:
-                location = response.headers.get("location")
-                if not location:
-                    raise SourceFetchError("source_redirect_missing_location")
-                current_url = canonicalize_url(urljoin(current_url, location))
-                # Conditional headers apply only to the initial representation.
-                headers.pop("If-None-Match", None)
-                headers.pop("If-Modified-Since", None)
-                continue
-            if response.status_code < 200 or response.status_code >= 300:
-                raise SourceFetchError("source_http_error")
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].lower().strip()
-            if content_type not in _SUPPORTED_CONTENT_TYPES:
-                raise SourceFetchError("source_content_type_rejected")
-            declared_size = response.headers.get("content-length")
-            if declared_size and (not declared_size.isdigit() or int(declared_size) > settings.knowledge_max_document_bytes):
-                raise SourceFetchError("source_document_too_large")
-            content = await _read_bounded(response, settings.knowledge_max_document_bytes)
-            return FetchedDocument(
-                url=current_url,
-                canonical_url=canonicalize_url(current_url),
-                content=content,
-                content_type=content_type,
-                content_hash=hashlib.sha256(content).hexdigest(),
-                etag=response.headers.get("etag"),
-                last_modified=response.headers.get("last-modified"),
-                fetched_at=datetime.now(UTC),
-            )
     raise SourceFetchError("source_redirect_limit_exceeded")
 
 
@@ -116,10 +116,14 @@ async def _validate_fetch_destination(url: str, source: ApprovedSourceDefinition
 
 
 async def _read_bounded(response: httpx.Response, maximum_bytes: int) -> bytes:
-    content = response.content
-    if len(content) > maximum_bytes:
-        raise SourceFetchError("source_document_too_large")
-    return content
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > maximum_bytes:
+            raise SourceFetchError("source_document_too_large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def conditional_request_headers(*, etag: str | None, last_modified: str | None) -> dict[str, str]:

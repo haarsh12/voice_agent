@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +13,9 @@ from app.config.settings import Settings
 from app.knowledge.contracts import Citation, DocumentStatus, RetrievedEvidence, RetrievalResult, UserKnowledgeContext
 from app.knowledge.registry import SOURCES_BY_KEY, is_approved_source_url
 from app.knowledge.repository import KnowledgeRepository
-from app.knowledge.vectors import EmbeddingError, QdrantVectorStore, VectorStoreError, VertexEmbeddingProvider
+from app.knowledge.vectors import QdrantVectorStore, VertexEmbeddingProvider
+
+logger = logging.getLogger("sahayak.knowledge.retrieval")
 
 
 class KnowledgeRetriever:
@@ -24,7 +28,9 @@ class KnowledgeRetriever:
         self.embedding_provider = VertexEmbeddingProvider(settings)
 
     async def retrieve(self, query: str, *, user_context: UserKnowledgeContext | None = None) -> RetrievalResult:
+        started_at = time.perf_counter()
         if not self.vector_store.configured:
+            logger.info("knowledge_retrieval_skipped reason=not_configured")
             return RetrievalResult(unavailable_reason="verified_knowledge_not_configured")
         try:
             vectors = await asyncio.to_thread(self.embedding_provider.embed, [query])
@@ -39,10 +45,10 @@ class KnowledgeRetriever:
                 limit=self.settings.knowledge_retrieval_limit,
                 filters=filters,
             )
-        except (EmbeddingError, VectorStoreError, Exception) as error:
+        except Exception:
             # The precise provider failure may contain infrastructure detail.
             # It is retained neither in the browser response nor model prompt.
-            del error
+            logger.warning("knowledge_retrieval_unavailable")
             return RetrievalResult(unavailable_reason="verified_retrieval_unavailable")
 
         score_by_id = {hit.point_id: hit.score for hit in hits}
@@ -79,6 +85,11 @@ class KnowledgeRetriever:
                 )
             )
         evidence.sort(key=lambda item: (_geographic_score(item, user_context), item.source_priority, item.score), reverse=True)
+        logger.info(
+            "knowledge_retrieval_complete evidence=%s latency_ms=%s",
+            len(evidence),
+            round((time.perf_counter() - started_at) * 1_000),
+        )
         return RetrievalResult(evidence=tuple(evidence))
 
 

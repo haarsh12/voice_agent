@@ -39,7 +39,11 @@ class KnowledgeRepository:
                 self.session.add(KnowledgeSource(**values))
             else:
                 for field, value in values.items():
-                    if field not in {"key", "enabled"}:
+                    # Runtime operational state belongs to the check worker,
+                    # not a static registry sync. In particular, do not turn
+                    # a CHECK_FAILED source back into APPROVED until a real
+                    # successful source check has completed.
+                    if field not in {"key", "enabled", "validation_status"}:
                         setattr(source, field, value)
         await self.session.commit()
 

@@ -39,7 +39,8 @@ venv/
 ENV/
 env/
 .env
-.env.example
+# Safe templates are reviewed and versioned; only real environment files stay ignored.
+reference_backend_folder/.env.example
 # Node
 node_modules/
 npm-debug.log*

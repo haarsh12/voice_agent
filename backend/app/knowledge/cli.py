@@ -10,8 +10,9 @@ import argparse
 import asyncio
 import logging
 
-from app.auth.session import get_session_factory
+from app.auth.session import ensure_development_auth_schema, get_engine, get_session_factory
 from app.config.settings import get_settings
+from app.core.logging import configure_logging
 from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.registry import SOURCES_BY_KEY
 
@@ -19,12 +20,20 @@ from app.knowledge.registry import SOURCES_BY_KEY
 async def _run(source_key: str | None) -> int:
     settings = get_settings()
     session_factory = get_session_factory()
-    if session_factory is None:
+    engine = get_engine()
+    if session_factory is None or engine is None:
         logging.error("knowledge_worker_database_unavailable")
         return 2
+    if (
+        not settings.is_production
+        and settings.async_database_url
+        and settings.async_database_url.startswith("sqlite")
+    ):
+        await ensure_development_auth_schema(engine)
     async with session_factory() as session:
         service = KnowledgeIngestionService(session, settings)
         if source_key:
+            await service.repository.sync_source_registry()
             source = SOURCES_BY_KEY.get(source_key)
             if source is None:
                 logging.error("knowledge_worker_unknown_source")
@@ -38,6 +47,7 @@ async def _run(source_key: str | None) -> int:
 
 
 def main() -> None:
+    configure_logging()
     parser = argparse.ArgumentParser(description="Run due Sahayak verified-knowledge source checks.")
     parser.add_argument("--source", choices=sorted(SOURCES_BY_KEY), help="Check one reviewed source immediately.")
     arguments = parser.parse_args()
