@@ -128,7 +128,7 @@ Check your `.env` file has correct credentials:
 ```env
 LIVEKIT_URL=wss://vyamit-cpoa7nzp.livekit.cloud
 LIVEKIT_API_KEY=APIZRsZ7yPoYdj3
-LIVEKIT_API_SECRET=o2SbyteldvyloEAgAQX7efNj2243m0Jydg5YeJe6IxXC
+LIVEKIT_API_SECRET=replace-with-your-livekit-api-secret
 ```
 
 ### Test Credentials

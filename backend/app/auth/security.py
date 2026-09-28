@@ -60,6 +60,50 @@ async def get_current_account(
     return account
 
 
+async def get_optional_current_account(
+    request: Request,
+    session: AsyncSession,
+    settings: Settings,
+) -> Account | None:
+    """Resolve profile context when a valid session is present, otherwise stay anonymous.
+
+    Chat remains available to guests. This helper deliberately never turns an
+    absent, expired, or tampered cookie into an authentication error or a user
+    identity hint.
+    """
+
+    decoded = _decode_access_token(_request_token(request) or "", settings)
+    if decoded is None:
+        return None
+    account_id, token_version = decoded
+    account = await session.get(Account, account_id)
+    if account is None or not account.is_active or account.token_version != token_version:
+        return None
+    return account
+
+
+async def get_optional_current_account(
+    request: Request,
+    session: AsyncSession,
+    settings: Settings,
+) -> Account | None:
+    """Resolve profile context when a valid session is present, otherwise stay anonymous.
+
+    Chat remains available to guests. This helper deliberately never turns an
+    absent, expired, or tampered cookie into an authentication error or a user
+    identity hint.
+    """
+
+    decoded = _decode_access_token(_request_token(request) or "", settings)
+    if decoded is None:
+        return None
+    account_id, token_version = decoded
+    account = await session.get(Account, account_id)
+    if account is None or not account.is_active or account.token_version != token_version:
+        return None
+    return account
+
+
 def require_csrf(request: Request) -> None:
     cookie_value = request.cookies.get(CSRF_COOKIE)
     header_value = request.headers.get(CSRF_HEADER)

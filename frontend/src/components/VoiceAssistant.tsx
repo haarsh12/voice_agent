@@ -376,6 +376,7 @@ export function VoiceAssistant({
           id: `text-assistant-${requestId}`,
           role: 'assistant',
           text: cleanAssistantTranscript(response.message),
+          evidenceStatus: response.evidence_status,
           sources: response.sources,
           source: 'text',
         },

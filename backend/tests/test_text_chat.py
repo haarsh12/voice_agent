@@ -14,7 +14,6 @@ from app.services.document_text import DocumentExtractionError, extract_uploaded
 from app.services import gemini
 from app.services.gemini import build_text_chat_prompt
 from app.services.guest_sessions import GuestSessionError, GuestSessionStore
-from app.services.official_sources import select_official_sources
 
 
 def _upload(filename: str, content: bytes, content_type: str) -> UploadFile:
@@ -195,12 +194,8 @@ def test_chat_endpoint_returns_a_direct_text_reply_without_livekit(monkeypatch, 
         "language": "gu-IN",
         "document_name": "notes.txt",
         "document_truncated": False,
-        "sources": [
-            {
-                "name": "Ministry of Cooperation, Government of India",
-                "url": "https://www.cooperation.gov.in/en/homepage",
-            }
-        ],
+        "evidence_status": "GENERAL_MODEL_KNOWLEDGE",
+        "sources": [],
     }
     assert received["language"] == "gu-IN"
     assert received["document_text"] == "First fact\nSecond fact"
@@ -298,11 +293,24 @@ def test_guest_session_store_rejects_an_invalid_capability() -> None:
         raise AssertionError("the context must require the matching guest capability")
 
 
-def test_official_source_selector_uses_only_reviewed_government_links() -> None:
-    pmfby_sources = select_official_sources("How can a farmer use PMFBY crop insurance?")
-    assert pmfby_sources[0].name == "Pradhan Mantri Fasal Bima Yojana (PMFBY)"
-    assert pmfby_sources[0].url == "https://pmfby.gov.in/"
+def test_authoritative_question_without_retrieved_evidence_abstains(monkeypatch, client) -> None:
+    def fail_if_called(*_args, **_kwargs) -> str:
+        raise AssertionError("Gemini must not answer unverified scheme information")
 
-    pacs_sources = select_official_sources("What does a PACS member do?")
-    assert pacs_sources[0].name == "Ministry of Cooperation — About PACS"
-    assert all(source.url.startswith("https://") for source in pacs_sources)
+    routes._chat_rate_limit.clear()
+    monkeypatch.setattr(routes, "generate_text_reply", fail_if_called)
+    guest = _guest_fields(client)
+    response = client.post(
+        "/api/chat",
+        files={
+            "message": (None, "What is the current PMFBY claim process?"),
+            "language": (None, "en-IN"),
+            "guest_session_id": (None, guest["session_id"]),
+            "guest_session_secret": (None, guest["session_secret"]),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["evidence_status"] == "INSUFFICIENT_EVIDENCE"
+    assert response.json()["sources"] == []
+    assert "could not verify" in response.json()["message"].casefold()

@@ -1,13 +1,14 @@
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Camera, ExternalLink, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { CameraCapture } from './CameraCapture'
-import type { OfficialSourceReference } from '../types/api'
+import type { EvidenceStatus, OfficialSourceReference } from '../types/api'
 
 export type TranscriptEntry = {
   id: string
   role: 'user' | 'assistant'
   text: string
   attachmentName?: string
+  evidenceStatus?: EvidenceStatus
   sources?: OfficialSourceReference[]
   source: 'text' | 'voice'
 }
@@ -20,6 +21,14 @@ type TranscriptPanelProps = {
 }
 
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
+
+const evidenceStatusLabel: Record<EvidenceStatus, string> = {
+  VERIFIED_SOURCE: 'Verified source',
+  MULTIPLE_VERIFIED_SOURCES: 'Verified sources',
+  PARTIALLY_VERIFIED: 'Partially verified',
+  GENERAL_MODEL_KNOWLEDGE: 'General guidance',
+  INSUFFICIENT_EVIDENCE: 'Could not verify',
+}
 
 function sourceWebsiteAddress(url: string): string {
   try {
@@ -126,9 +135,14 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                   {entry.role === 'assistant' ? 'Sahayak AI' : 'You'}
                 </span>
                 <p>{entry.text}</p>
+                {entry.role === 'assistant' && entry.source === 'text' && entry.evidenceStatus && (
+                  <span className={`transcript-entry__evidence transcript-entry__evidence--${entry.evidenceStatus.toLowerCase()}`}>
+                    {evidenceStatusLabel[entry.evidenceStatus]}
+                  </span>
+                )}
                 {entry.role === 'assistant' && entry.source === 'text' && entry.sources && entry.sources.length > 0 && (
-                  <footer className="transcript-entry__sources" aria-label="Official government sources">
-                    <span>Official government source{entry.sources.length > 1 ? 's' : ''}</span>
+                  <footer className="transcript-entry__sources" aria-label="Verified official sources">
+                    <span>Verified official source{entry.sources.length > 1 ? 's' : ''}</span>
                     {entry.sources.map((source) => (
                       <a
                         aria-label={`Open ${source.name} at ${sourceWebsiteAddress(source.url)}`}
@@ -139,7 +153,7 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                       >
                         <span className="transcript-entry__source-body">
                           <b>{source.name}</b>
-                          <small>{sourceWebsiteAddress(source.url)}</small>
+                          <small>{source.title}{source.document_version ? ` · Version ${source.document_version}` : ''}</small>
                         </span>
                         <ExternalLink aria-hidden="true" size={14} />
                       </a>

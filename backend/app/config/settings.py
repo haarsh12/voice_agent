@@ -79,6 +79,18 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_temperature: float = Field(default=0.35, ge=0, le=2)
 
+    # Knowledge-engine configuration. Qdrant is an internal service only: its
+    # endpoint and optional API key are never returned by any API route and
+    # must never use a VITE_ environment variable.
+    qdrant_url: str = ""
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = "sahayak_verified_knowledge"
+    knowledge_embedding_model: str = "text-embedding-004"
+    knowledge_embedding_dimensions: int = Field(default=768, ge=64, le=4096)
+    knowledge_retrieval_limit: int = Field(default=8, ge=1, le=25)
+    knowledge_fetch_timeout_seconds: float = Field(default=20.0, ge=1.0, le=60.0)
+    knowledge_max_document_bytes: int = Field(default=8 * 1024 * 1024, ge=64 * 1024, le=32 * 1024 * 1024)
+
     # Google Cloud TTS defaults. The live selector supplies the locale-specific
     # Chirp 3 HD voice for every supported language.
     google_tts_language: str = "hi-IN"  # Default to Hindi
@@ -249,6 +261,14 @@ class Settings(BaseSettings):
 
     def require_agent_providers(self) -> None:
         self.require_token_issuer()
+        self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
+
+    @property
+    def qdrant_configured(self) -> bool:
+        return bool(self.qdrant_url.strip())
+
+    def require_knowledge_retrieval(self) -> None:
+        self._require("QDRANT_URL", self.qdrant_url)
         self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
 
     @staticmethod

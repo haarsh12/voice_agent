@@ -12,10 +12,16 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import UploadFile
 
 from app.agent.languages import normalize_language
+from app.auth.security import get_optional_current_account
+from app.auth.session import get_auth_session
 from app.config.settings import MissingConfigurationError, Settings, get_settings
+from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
+from app.knowledge.policy import decide_response
+from app.knowledge.retrieval import KnowledgeRetriever, format_evidence_for_model
 from app.services.document_text import (
     MAX_UPLOAD_BYTES,
     DocumentExtractionError,
@@ -23,7 +29,6 @@ from app.services.document_text import (
     extract_uploaded_document,
 )
 from app.services.gemini import TextGenerationError, generate_text_reply
-from app.services.official_sources import OfficialSource, select_official_sources
 from app.services.guest_sessions import (
     MAX_AGENT_CONTEXT_CHARACTERS,
     GuestSessionError,
@@ -81,27 +86,39 @@ class ConnectionDetails(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """A direct text reply with only reviewed official source metadata."""
+    """A direct reply with its evidence classification and real citations."""
 
     message: str
     language: SUPPORTED_LANGUAGES
     document_name: str | None = None
     document_truncated: bool = False
+    evidence_status: EvidenceStatus
     sources: list["OfficialSourceReference"] = Field(default_factory=list)
 
 
 class OfficialSourceReference(BaseModel):
-    """A reviewed official link rendered below a text-chat response."""
+    """A source reference generated from a retrieved current document chunk."""
 
     name: str
+    title: str
     url: str
+    document_version: str | None = None
+    freshness_status: str
 
 
-def _source_references(message: str) -> list[OfficialSourceReference]:
-    """Map user intent to allowlisted official links, never model-provided URLs."""
+def _source_references(citations: tuple[Citation, ...]) -> list[OfficialSourceReference]:
+    """Serialize only citations produced by the retrieval service."""
 
-    sources: tuple[OfficialSource, ...] = select_official_sources(message)
-    return [OfficialSourceReference(name=source.name, url=source.url) for source in sources]
+    return [
+        OfficialSourceReference(
+            name=citation.source_name,
+            title=citation.title,
+            url=citation.url,
+            document_version=citation.document_version,
+            freshness_status=citation.freshness_status.value,
+        )
+        for citation in citations
+    ]
 
 
 class GuestSessionResponse(BaseModel):
@@ -284,6 +301,7 @@ async def create_token(
 @router.post("/chat", response_model=ChatResponse)
 async def create_text_chat_reply(
     request: Request,
+    session: AsyncSession = Depends(get_auth_session),
     settings: Settings = Depends(get_settings),
 ) -> ChatResponse:
     """Accept a text message and optional document, then return a text-only reply."""
@@ -344,39 +362,58 @@ async def create_text_chat_reply(
 
     document = attachment if isinstance(attachment, ExtractedDocument) else None
     image = attachment if attachment is not None and not isinstance(attachment, ExtractedDocument) else None
-
-    try:
-        reply = await asyncio.wait_for(
-            asyncio.to_thread(
-                generate_text_reply,
-                settings,
-                message=message,
-                language=language,
-                document_text=document.text if document else None,
-                document_truncated=document.truncated if document else False,
-                image_data=image.data if image else None,
-                image_mime_type=image.mime_type if image else None,
-                guest_context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
-            ),
-            timeout=45,
+    account = await get_optional_current_account(request, session, settings)
+    user_context = (
+        UserKnowledgeContext(
+            state=account.state,
+            district=account.district,
+            village_or_town=account.village_or_town,
+            user_type=account.user_type,
+            cooperative_role=account.cooperative_role,
         )
-    except asyncio.TimeoutError as error:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="The assistant took too long to reply. Please try again.",
-        ) from error
-    except (MissingConfigurationError, TextGenerationError) as error:
-        logger.warning("text_chat_unavailable reason=%s", type(error).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Text chat is not available right now. Please try again shortly.",
-        ) from error
-    except Exception:
-        logger.exception("text_chat_generation_failed")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The assistant could not generate a reply. Please try again.",
-        ) from None
+        if account is not None
+        else None
+    )
+    retrieval = await KnowledgeRetriever(session, settings).retrieve(message, user_context=user_context)
+    decision = decide_response(message=message, language=language, retrieval=retrieval)
+
+    if decision.requires_abstention:
+        reply = decision.abstention_message or "I could not verify that information from official sources."
+    else:
+        try:
+            reply = await asyncio.wait_for(
+                asyncio.to_thread(
+                    generate_text_reply,
+                    settings,
+                    message=message,
+                    language=language,
+                    document_text=document.text if document else None,
+                    document_truncated=document.truncated if document else False,
+                    image_data=image.data if image else None,
+                    image_mime_type=image.mime_type if image else None,
+                    guest_context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
+                    verified_evidence=format_evidence_for_model(decision.retrieval.evidence),
+                    evidence_status=decision.evidence_status.value,
+                ),
+                timeout=45,
+            )
+        except asyncio.TimeoutError as error:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="The assistant took too long to reply. Please try again.",
+            ) from error
+        except (MissingConfigurationError, TextGenerationError) as error:
+            logger.warning("text_chat_unavailable reason=%s", type(error).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Text chat is not available right now. Please try again shortly.",
+            ) from error
+        except Exception:
+            logger.exception("text_chat_generation_failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="The assistant could not generate a reply. Please try again.",
+            ) from None
 
     if document is not None:
         try:
@@ -409,5 +446,6 @@ async def create_text_chat_reply(
         language=language,
         document_name=attachment.filename if attachment else None,
         document_truncated=document.truncated if document else False,
-        sources=_source_references(message),
+        evidence_status=decision.evidence_status,
+        sources=_source_references(decision.retrieval.citations),
     )

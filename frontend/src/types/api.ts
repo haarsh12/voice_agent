@@ -10,12 +10,23 @@ export type TextChatResponse = {
   language: SupportedLanguage
   document_name: string | null
   document_truncated: boolean
+  evidence_status: EvidenceStatus
   sources: OfficialSourceReference[]
 }
 
+export type EvidenceStatus =
+  | 'VERIFIED_SOURCE'
+  | 'MULTIPLE_VERIFIED_SOURCES'
+  | 'PARTIALLY_VERIFIED'
+  | 'GENERAL_MODEL_KNOWLEDGE'
+  | 'INSUFFICIENT_EVIDENCE'
+
 export type OfficialSourceReference = {
   name: string
+  title: string
   url: string
+  document_version: string | null
+  freshness_status: 'CURRENT' | 'SUPERSEDED' | 'EXPIRED' | 'REVIEW_REQUIRED' | 'UNKNOWN' | 'FETCH_FAILED' | 'EXTRACTION_FAILED'
 }
 
 export type GuestSession = {
