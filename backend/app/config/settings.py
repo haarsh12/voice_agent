@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     web_authn_rp_id: str = ""
     web_authn_origins: str = ""
 
+    # The operational knowledge dashboard has a separate, short-lived admin
+    # session. The password is Argon2id-hashed before it reaches this setting;
+    # no plaintext administrator password is accepted at runtime.
+    admin_id: str = ""
+    admin_password_hash: SecretStr | None = None
+    admin_access_token_minutes: int = Field(default=240, ge=15, le=480)
+
     # Google Cloud STT configuration
     google_application_credentials: str | None = None
     google_stt_language: str = "hi-IN"
@@ -229,6 +236,7 @@ class Settings(BaseSettings):
             raise MissingConfigurationError("DATABASE_URL must be configured in production.")
         if self.otp_demo_mode:
             raise MissingConfigurationError("OTP_DEMO_MODE must be disabled in production.")
+        self.require_admin_access()
         if not self.allowed_origins or any(not origin.startswith("https://") for origin in self.allowed_origins):
             raise MissingConfigurationError("CORS_ORIGINS must contain explicit HTTPS origins in production.")
         if self.web_authn_origins and (
@@ -268,6 +276,10 @@ class Settings(BaseSettings):
     def require_agent_providers(self) -> None:
         self.require_token_issuer()
         self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
+
+    def require_admin_access(self) -> None:
+        self._require("ADMIN_ID", self.admin_id)
+        self._require("ADMIN_PASSWORD_HASH", self.admin_password_hash)
 
     @property
     def qdrant_configured(self) -> bool:

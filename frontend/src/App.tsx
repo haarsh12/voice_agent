@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 
 import { AccessGate } from './components/AccessGate'
+import { AdminKnowledgePanel } from './components/AdminKnowledgePanel'
 import { AuthModal } from './components/AuthModal'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard, DocumentsView, GrievancesView, NotificationsView, ProfileView, SchemesView } from './components/PortalViews'
@@ -54,6 +55,9 @@ function App() {
       case '/voice':
         content = <Suspense fallback={<main className="page-loader"><span className="loader-ring" /> Opening voice assistant…</main>}><VoiceExperience /></Suspense>
         break
+      case '/admin':
+        content = <AdminKnowledgePanel />
+        break
       case '/onboarding':
         content = auth.user ? <Onboarding auth={auth} onComplete={() => navigate('/dashboard')} profile={auth.user} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Account setup" />
         break
@@ -82,10 +86,10 @@ function App() {
 
   return (
     <>
-      <div className="app-shell">
+      <div className={`app-shell ${route === '/voice' ? 'app-shell--voice' : ''}`}>
         <SahayakHeader activeRoute={route} onNavigate={navigate} onOpenAuth={() => setIsAuthOpen(true)} onSignOut={logout} user={auth.user} />
         {content}
-        <footer className="site-footer"><span>© Sahayak AI</span><span>Educational guidance, not legal or financial advice.</span><span>Available in 10 Indian languages.</span></footer>
+        {route !== '/voice' && <footer className="site-footer"><span>© Sahayak AI</span><span>Educational guidance, not legal or financial advice.</span><span>Available in 10 Indian languages.</span></footer>}
       </div>
       <AuthModal auth={auth} isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} onVerified={onVerified} />
     </>

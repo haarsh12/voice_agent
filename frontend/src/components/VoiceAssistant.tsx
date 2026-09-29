@@ -67,7 +67,11 @@ type VoiceEvidenceUpdate = {
 }
 
 function voiceReplyKey(text: string): string {
-  return cleanAssistantTranscript(text).replace(/\s+/g, ' ').trim()
+  return cleanAssistantTranscript(text)
+    .replace(/[\p{P}\p{S}]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase()
 }
 
 function parseVoiceEvidenceUpdate(value: unknown): VoiceEvidenceUpdate | null {

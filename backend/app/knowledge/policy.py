@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.knowledge.contracts import EvidenceStatus, KnowledgeDecision, RetrievalResult
+from app.knowledge.contracts import EvidenceStatus, KnowledgeDecision, RetrievedEvidence, RetrievalResult
 
 _AUTHORITATIVE_TERMS = (
     "scheme", "eligibility", "eligible", "benefit", "deadline", "last date", "apply", "application",
@@ -38,22 +38,53 @@ def requires_verified_evidence(message: str) -> bool:
 def decide_response(*, message: str, language: str, retrieval: RetrievalResult) -> KnowledgeDecision:
     """Permit Gemini only where an unsupported answer cannot look authoritative."""
 
-    if retrieval.evidence:
+    if requires_verified_evidence(message):
+        selected = _select_cited_evidence(retrieval)
+        if not selected.evidence:
+            return KnowledgeDecision(
+                evidence_status=EvidenceStatus.INSUFFICIENT_EVIDENCE,
+                retrieval=selected,
+                requires_abstention=True,
+                abstention_message=_ABSTENTIONS.get(language, _ABSTENTIONS["en-IN"]),
+            )
         status = (
             EvidenceStatus.MULTIPLE_VERIFIED_SOURCES
-            if len(retrieval.citations) > 1
+            if len(selected.citations) > 1
             else EvidenceStatus.VERIFIED_SOURCE
         )
-        return KnowledgeDecision(evidence_status=status, retrieval=retrieval, requires_abstention=False)
-    if requires_verified_evidence(message):
-        return KnowledgeDecision(
-            evidence_status=EvidenceStatus.INSUFFICIENT_EVIDENCE,
-            retrieval=retrieval,
-            requires_abstention=True,
-            abstention_message=_ABSTENTIONS.get(language, _ABSTENTIONS["en-IN"]),
-        )
+        return KnowledgeDecision(evidence_status=status, retrieval=selected, requires_abstention=False)
+
+    # Dense search always produces neighbours, even for greetings or broad
+    # educational conversation. Those neighbours are not evidence used for the
+    # answer and must not become a repeated, misleading source list in the UI.
     return KnowledgeDecision(
         evidence_status=EvidenceStatus.GENERAL_MODEL_KNOWLEDGE,
-        retrieval=retrieval,
+        retrieval=RetrievalResult(unavailable_reason=retrieval.unavailable_reason),
         requires_abstention=False,
     )
+
+
+def _select_cited_evidence(retrieval: RetrievalResult) -> RetrievalResult:
+    """Keep a grounded answer and its visual provenance concise and exact.
+
+    At most two official documents and two chunks per document reach the
+    generation prompt.  The same two documents become the only visual links,
+    so the UI never displays a long list that the answer did not use.
+    """
+
+    selected: list[RetrievedEvidence] = []
+    chunks_by_source: dict[tuple[str, str, str | None], int] = {}
+    for item in retrieval.evidence:
+        source_key = (
+            item.citation.source_name,
+            item.citation.url,
+            item.citation.document_version,
+        )
+        if source_key not in chunks_by_source and len(chunks_by_source) >= 2:
+            continue
+        used_chunks = chunks_by_source.get(source_key, 0)
+        if used_chunks >= 2:
+            continue
+        chunks_by_source[source_key] = used_chunks + 1
+        selected.append(item)
+    return RetrievalResult(evidence=tuple(selected), unavailable_reason=retrieval.unavailable_reason)

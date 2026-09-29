@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Select, inspect, select, update
+from sqlalchemy import Select, func, inspect, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -333,6 +333,137 @@ class KnowledgeRepository:
         )
         rows = list((await self.session.execute(statement)).all())
         return sorted(rows, key=lambda row: ordering[row[0].vector_point_id])
+
+    async def admin_dashboard_snapshot(self, *, recent_document_limit: int = 30) -> dict[str, object]:
+        """Return non-sensitive, operational metadata for the admin dashboard.
+
+        Raw chunk text, embedding values, content hashes, and provider secrets
+        deliberately remain unavailable to the browser, including to this
+        dashboard. Administrators can inspect official source links and the
+        ingestion audit without turning the dashboard into a data exfiltration
+        surface.
+        """
+
+        sources = list(
+            (
+                await self.session.scalars(
+                    select(KnowledgeSource).order_by(KnowledgeSource.authority_level.desc(), KnowledgeSource.name)
+                )
+            ).all()
+        )
+        document_count = int(
+            await self.session.scalar(select(func.count()).select_from(KnowledgeDocument)) or 0
+        )
+        current_document_count = int(
+            await self.session.scalar(
+                select(func.count())
+                .select_from(KnowledgeDocumentVersion)
+                .where(KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value)
+            )
+            or 0
+        )
+        chunk_count = int(
+            await self.session.scalar(select(func.count()).select_from(KnowledgeChunk)) or 0
+        )
+
+        source_rows: list[dict[str, object]] = []
+        for source in sources:
+            current_documents = int(
+                await self.session.scalar(
+                    select(func.count())
+                    .select_from(KnowledgeDocumentVersion)
+                    .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+                    .where(
+                        KnowledgeDocument.source_key == source.key,
+                        KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value,
+                    )
+                )
+                or 0
+            )
+            source_chunks = int(
+                await self.session.scalar(
+                    select(func.count())
+                    .select_from(KnowledgeChunk)
+                    .join(
+                        KnowledgeDocumentVersion,
+                        KnowledgeDocumentVersion.id == KnowledgeChunk.document_version_id,
+                    )
+                    .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+                    .where(KnowledgeDocument.source_key == source.key)
+                )
+                or 0
+            )
+            latest_check = await self.session.scalar(
+                select(KnowledgeSourceCheck)
+                .where(KnowledgeSourceCheck.source_key == source.key)
+                .order_by(KnowledgeSourceCheck.started_at.desc())
+                .limit(1)
+            )
+            source_rows.append(
+                {
+                    "key": source.key,
+                    "name": source.name,
+                    "category": source.category,
+                    "geographic_scope": source.geographic_scope,
+                    "approved_domains": list(source.approved_domains),
+                    "entry_urls": list(source.entry_urls),
+                    "enabled": source.enabled,
+                    "validation_status": source.validation_status,
+                    "check_interval_hours": source.check_interval_hours,
+                    "last_successful_check_at": source.last_successful_check_at,
+                    "last_detected_change_at": source.last_detected_change_at,
+                    "last_successful_ingestion_at": source.last_successful_ingestion_at,
+                    "current_document_count": current_documents,
+                    "chunk_count": source_chunks,
+                    "latest_check": (
+                        {
+                            "started_at": latest_check.started_at,
+                            "completed_at": latest_check.completed_at,
+                            "result": latest_check.result,
+                            "checked_documents": latest_check.checked_documents,
+                            "changed_documents": latest_check.changed_documents,
+                            "failure_code": latest_check.failure_code,
+                        }
+                        if latest_check is not None
+                        else None
+                    ),
+                }
+            )
+
+        recent_rows = list(
+            (
+                await self.session.execute(
+                    select(KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource)
+                    .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+                    .join(KnowledgeSource, KnowledgeSource.key == KnowledgeDocument.source_key)
+                    .order_by(KnowledgeDocumentVersion.last_checked_at.desc())
+                    .limit(recent_document_limit)
+                )
+            ).all()
+        )
+        recent_documents = [
+            {
+                "source_key": source.key,
+                "source_name": source.name,
+                "title": version.title,
+                "url": version.source_url,
+                "version_number": version.version_number,
+                "status": version.status,
+                "last_checked_at": version.last_checked_at,
+                "first_retrieved_at": version.first_retrieved_at,
+                "extraction_method": version.extraction_method,
+                "is_ocr": version.is_ocr,
+            }
+            for version, _document, source in recent_rows
+        ]
+        return {
+            "source_count": len(sources),
+            "document_count": document_count,
+            "current_document_count": current_document_count,
+            "chunk_count": chunk_count,
+            "sources": source_rows,
+            "recent_documents": recent_documents,
+        }
 
 
 def _source_values(definition: ApprovedSourceDefinition) -> dict[str, object]:

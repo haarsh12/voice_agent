@@ -1,6 +1,7 @@
 export const APP_ROUTES = [
   '/',
   '/voice',
+  '/admin',
   '/dashboard',
   '/documents',
   '/schemes',

@@ -225,6 +225,24 @@ class QdrantVectorStore:
             expected={200},
         )
 
+    def count(self) -> int:
+        """Return the collection's approximate point count for admin health only."""
+
+        self._require_safe_endpoint()
+        response = self._request(
+            "POST",
+            f"/collections/{self.settings.qdrant_collection}/points/count",
+            json={"exact": False},
+            expected={200},
+        )
+        try:
+            count = int(response.json()["result"]["count"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise VectorStoreError("qdrant_count_response_invalid") from error
+        if count < 0:
+            raise VectorStoreError("qdrant_count_response_invalid")
+        return count
+
     def _request(self, method: str, path: str, *, expected: set[int], json: dict[str, object] | None = None) -> httpx.Response:
         headers: dict[str, str] = {}
         if self.settings.qdrant_api_key and self.settings.qdrant_api_key.get_secret_value().strip():

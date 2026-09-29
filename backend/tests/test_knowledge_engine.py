@@ -175,6 +175,56 @@ def test_policy_does_not_present_new_bank_website_information_as_general_guidanc
     assert decision.evidence_status.value == "INSUFFICIENT_EVIDENCE"
 
 
+def test_policy_does_not_attach_dense_search_neighbours_to_general_conversation() -> None:
+    citation = Citation(
+        source_name="Ministry of Cooperation",
+        title="Official source",
+        url="https://www.cooperation.gov.in/en/homepage",
+        freshness_status=DocumentStatus.CURRENT,
+    )
+    retrieval = RetrievalResult(
+        evidence=(
+            RetrievedEvidence(
+                chunk_id="hello-neighbour",
+                text="Unrelated source content",
+                score=0.42,
+                citation=citation,
+                source_priority=100,
+            ),
+        )
+    )
+
+    decision = decide_response(message="Hello, how are you?", language="en-IN", retrieval=retrieval)
+
+    assert decision.evidence_status.value == "GENERAL_MODEL_KNOWLEDGE"
+    assert decision.retrieval.citations == ()
+
+
+def test_policy_limits_a_grounded_answer_to_two_actual_source_links() -> None:
+    def evidence(source: str, ordinal: int) -> RetrievedEvidence:
+        return RetrievedEvidence(
+            chunk_id=f"chunk-{ordinal}",
+            text=f"Verified content {ordinal}",
+            score=0.9 - ordinal / 100,
+            citation=Citation(
+                source_name=source,
+                title=f"{source} document",
+                url=f"https://pmfby.gov.in/notification/{ordinal}.pdf",
+                freshness_status=DocumentStatus.CURRENT,
+            ),
+            source_priority=100,
+        )
+
+    decision = decide_response(
+        message="What is the current PMFBY scheme procedure?",
+        language="en-IN",
+        retrieval=RetrievalResult(evidence=tuple(evidence(f"Source {ordinal}", ordinal) for ordinal in range(5))),
+    )
+
+    assert len(decision.retrieval.citations) == 2
+    assert len(decision.retrieval.evidence) == 2
+
+
 def test_registry_sync_preserves_failed_source_operational_state() -> None:
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")

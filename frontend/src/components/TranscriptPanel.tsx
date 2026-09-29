@@ -23,11 +23,11 @@ type TranscriptPanelProps = {
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 
 const evidenceStatusLabel: Record<EvidenceStatus, string> = {
-  VERIFIED_SOURCE: 'Verified source',
-  MULTIPLE_VERIFIED_SOURCES: 'Verified sources',
+  VERIFIED_SOURCE: 'Verified knowledge base · 1 official source used',
+  MULTIPLE_VERIFIED_SOURCES: 'Verified knowledge base · official sources used',
   PARTIALLY_VERIFIED: 'Partially verified',
-  GENERAL_MODEL_KNOWLEDGE: 'General guidance',
-  INSUFFICIENT_EVIDENCE: 'Could not verify',
+  GENERAL_MODEL_KNOWLEDGE: 'General guidance · no official source used',
+  INSUFFICIENT_EVIDENCE: 'Official source could not be verified',
 }
 
 function sourceWebsiteAddress(url: string): string {
@@ -154,7 +154,7 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                 )}
                 {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
                   <footer className="transcript-entry__sources" aria-label="Verified official sources">
-                    <span>Verified official source{entry.sources.length > 1 ? 's' : ''}</span>
+                    <span>Official source{entry.sources.length > 1 ? 's' : ''} used for this answer</span>
                     {entry.sources.map((source) => (
                       <a
                         aria-label={`Open ${source.name} at ${sourceWebsiteAddress(source.url)}`}

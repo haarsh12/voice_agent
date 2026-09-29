@@ -34,6 +34,65 @@ export type GuestSession = {
   session_secret: string
 }
 
+export type AdminSession = {
+  authenticated: boolean
+}
+
+export type AdminKnowledgeCheck = {
+  started_at: string
+  completed_at: string | null
+  result: 'UNCHANGED' | 'CHANGED' | 'PARTIAL_FAILURE' | 'FAILED'
+  checked_documents: number
+  changed_documents: number
+  failure_code: string | null
+}
+
+export type AdminKnowledgeSource = {
+  key: string
+  name: string
+  category: string
+  geographic_scope: string
+  approved_domains: string[]
+  entry_urls: string[]
+  enabled: boolean
+  validation_status: 'APPROVED' | 'DISABLED' | 'CHECK_FAILED' | 'REVIEW_REQUIRED'
+  check_interval_hours: number
+  last_successful_check_at: string | null
+  last_detected_change_at: string | null
+  last_successful_ingestion_at: string | null
+  current_document_count: number
+  chunk_count: number
+  latest_check: AdminKnowledgeCheck | null
+}
+
+export type AdminKnowledgeDocument = {
+  source_key: string
+  source_name: string
+  title: string
+  url: string
+  version_number: number
+  status: 'CURRENT' | 'SUPERSEDED' | 'EXPIRED' | 'REVIEW_REQUIRED' | 'UNKNOWN' | 'FETCH_FAILED' | 'EXTRACTION_FAILED'
+  last_checked_at: string
+  first_retrieved_at: string
+  extraction_method: string | null
+  is_ocr: boolean
+}
+
+export type AdminKnowledgeDashboard = {
+  generated_at: string
+  storage: {
+    relational_database: 'connected'
+    vector_index: 'connected' | 'not_configured' | 'unavailable'
+    vector_point_count: number | null
+    source_count: number
+    document_count: number
+    current_document_count: number
+    chunk_count: number
+  }
+  sources: AdminKnowledgeSource[]
+  recent_documents: AdminKnowledgeDocument[]
+}
+
 export const USER_TYPES = [
   'cooperative_member',
   'farmer',

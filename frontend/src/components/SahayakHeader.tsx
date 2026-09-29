@@ -16,6 +16,7 @@ const NAVIGATION: Array<{ label: string; route: AppRoute; protected?: boolean }>
   { label: 'Ask Sahayak', route: '/voice' },
   { label: 'Services', route: '/dashboard', protected: true },
   { label: 'Schemes', route: '/schemes', protected: true },
+  { label: 'Admin', route: '/admin' },
 ]
 
 function nameFor(profile: SahayakProfile): string {
