@@ -21,7 +21,13 @@ import { TranscriptPanel, type TranscriptEntry } from './TranscriptPanel'
 import { LanguageSelector } from './LanguageSelector'
 import { getHealth, sendTextChat } from '../lib/api'
 import { type VoiceState, voiceStateDetails } from '../lib/voice-state'
-import { isSupportedLanguage, type GuestSession, type SupportedLanguage } from '../types/api'
+import {
+  isSupportedLanguage,
+  type EvidenceStatus,
+  type GuestSession,
+  type OfficialSourceReference,
+  type SupportedLanguage,
+} from '../types/api'
 
 type VoiceAssistantProps = {
   onLanguageChange: (language: SupportedLanguage) => void
@@ -44,6 +50,7 @@ const microphoneConstraints = {
 
 const languageControlTopic = 'sahayak.language.v1'
 const contextControlTopic = 'sahayak.context.v1'
+const citationControlTopic = 'sahayak.citations.v1'
 const internalVoiceTagPattern = /<\s*(?:analysis|reasoning|thought|thinking)\b[^>]*>[\s\S]*?(?:<\s*\/\s*(?:analysis|reasoning|thought|thinking)\s*>|$)/gi
 
 function cleanAssistantTranscript(text: string): string {
@@ -51,6 +58,61 @@ function cleanAssistantTranscript(text: string): string {
     .replace(internalVoiceTagPattern, '')
     .replace(/<\/?[^>]+>/g, '')
     .trim()
+}
+
+type VoiceEvidenceUpdate = {
+  evidenceStatus: EvidenceStatus
+  sources: OfficialSourceReference[]
+  replyText: string
+}
+
+function voiceReplyKey(text: string): string {
+  return cleanAssistantTranscript(text).replace(/\s+/g, ' ').trim()
+}
+
+function parseVoiceEvidenceUpdate(value: unknown): VoiceEvidenceUpdate | null {
+  if (!value || typeof value !== 'object' || !('type' in value) || value.type !== 'voice_evidence') return null
+  if (!('evidence_status' in value) || typeof value.evidence_status !== 'string') return null
+  if (!('reply_text' in value) || typeof value.reply_text !== 'string') return null
+  const evidenceStatus = value.evidence_status as EvidenceStatus
+  if (![
+    'VERIFIED_SOURCE',
+    'MULTIPLE_VERIFIED_SOURCES',
+    'PARTIALLY_VERIFIED',
+    'GENERAL_MODEL_KNOWLEDGE',
+    'INSUFFICIENT_EVIDENCE',
+  ].includes(evidenceStatus)) return null
+  const replyText = voiceReplyKey(value.reply_text)
+  if (!replyText || replyText.length > 2_000) return null
+  if (!('sources' in value) || !Array.isArray(value.sources) || value.sources.length > 8) return null
+
+  const sources: OfficialSourceReference[] = []
+  for (const source of value.sources) {
+    if (!source || typeof source !== 'object') return null
+    const candidate = source as Record<string, unknown>
+    const fields = ['name', 'title', 'url', 'freshness_status'] as const
+    if (fields.some((field) => !(field in candidate) || typeof candidate[field] !== 'string')) return null
+    if (
+      (candidate.name as string).length > 200 ||
+      (candidate.title as string).length > 500 ||
+      (candidate.url as string).length > 2_048 ||
+      !['CURRENT', 'SUPERSEDED', 'EXPIRED', 'REVIEW_REQUIRED', 'UNKNOWN', 'FETCH_FAILED', 'EXTRACTION_FAILED'].includes(candidate.freshness_status as string)
+    ) return null
+    try {
+      const url = new URL(candidate.url as string)
+      if (url.protocol !== 'https:' || url.username || url.password) return null
+    } catch {
+      return null
+    }
+    sources.push({
+      name: candidate.name as string,
+      title: candidate.title as string,
+      url: candidate.url as string,
+      document_version: typeof candidate.document_version === 'string' ? candidate.document_version : null,
+      freshness_status: candidate.freshness_status as OfficialSourceReference['freshness_status'],
+    })
+  }
+  return { evidenceStatus, sources, replyText }
 }
 
 function toVoiceState(
@@ -97,6 +159,7 @@ export function VoiceAssistant({
   const languageUpdateTimeout = useRef<number | undefined>(undefined)
   const lastConfirmedLanguage = useRef<SupportedLanguage>(selectedLanguage)
   const latestLanguageRevision = useRef(-1)
+  const pendingVoiceEvidence = useRef<Map<string, VoiceEvidenceUpdate>>(new Map())
 
   useEffect(() => {
     const participant = session.room.localParticipant
@@ -125,11 +188,36 @@ export function VoiceAssistant({
       _kind?: unknown,
       topic?: string,
     ) => {
-      if (topic !== languageControlTopic) return
+      if (topic !== languageControlTopic && topic !== citationControlTopic) return
       if (agent.identity && participant?.identity !== agent.identity) return
 
       try {
         const data: unknown = JSON.parse(new TextDecoder().decode(payload))
+        if (topic === citationControlTopic) {
+          const evidence = parseVoiceEvidenceUpdate(data)
+          if (!evidence) return
+          setTranscriptEntries((entries) => {
+            const targetIndex = entries.findLastIndex(
+              (entry) => (
+                entry.role === 'assistant'
+                && entry.source === 'voice'
+                && voiceReplyKey(entry.text) === evidence.replyText
+              ),
+            )
+            if (targetIndex < 0) {
+              pendingVoiceEvidence.current.set(evidence.replyText, evidence)
+              return entries
+            }
+            const next = [...entries]
+            next[targetIndex] = {
+              ...next[targetIndex],
+              evidenceStatus: evidence.evidenceStatus,
+              sources: evidence.sources,
+            }
+            return next
+          })
+          return
+        }
         if (
           !data ||
           typeof data !== 'object' ||
@@ -224,8 +312,26 @@ export function VoiceAssistant({
       const next = [...entries]
       for (const voiceEntry of voiceTranscriptEntries) {
         const existingIndex = next.findIndex((entry) => entry.id === voiceEntry.id)
-        if (existingIndex >= 0) next[existingIndex] = voiceEntry
-        else next.push(voiceEntry)
+        if (existingIndex >= 0) {
+          const existing = next[existingIndex]
+          next[existingIndex] = {
+            ...voiceEntry,
+            evidenceStatus: existing.evidenceStatus,
+            sources: existing.sources,
+          }
+        } else {
+          const evidence = voiceEntry.role === 'assistant'
+            ? pendingVoiceEvidence.current.get(voiceReplyKey(voiceEntry.text))
+            : undefined
+          if (evidence) pendingVoiceEvidence.current.delete(evidence.replyText)
+          next.push(evidence
+            ? {
+                ...voiceEntry,
+                evidenceStatus: evidence.evidenceStatus,
+                sources: evidence.sources,
+              }
+            : voiceEntry)
+        }
       }
       return next
     })
@@ -236,6 +342,7 @@ export function VoiceAssistant({
     // conversation. The voice SDK clears its own old transcription history on
     // disconnect; this resets the locally rendered text history at once.
     setTranscriptEntries([])
+    pendingVoiceEvidence.current.clear()
   }, [guestSession?.session_id])
 
   const agentFailure = agent.state === 'failed' ? agent.failureReasons.join(' ') : null

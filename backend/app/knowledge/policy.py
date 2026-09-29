@@ -8,8 +8,10 @@ _AUTHORITATIVE_TERMS = (
     "scheme", "eligibility", "eligible", "benefit", "deadline", "last date", "apply", "application",
     "claim", "premium", "insurance", "pmfby", "notification", "circular", "law", "legal", "rule",
     "bylaw", "bye-law", "procedure", "process", "contact", "helpline", "grievance", "loan", "interest",
+    "current", "latest", "new", "official", "website", "portal", "bank", "pnb",
     "योजना", "पात्रता", "लाभ", "अंतिम तिथि", "आवेदन", "दावा", "बीमा", "नियम", "कानून", "शिकायत",
-    "अधिसूचना", "प्रक्रिया", "कर्ज", "ब्याज", "योजने", "पात्र", "अर्ज", "विमा", "नियम",
+    "अधिसूचना", "प्रक्रिया", "कर्ज", "ब्याज", "वर्तमान", "नवीनतम", "नई", "नया", "आधिकारिक",
+    "वेबसाइट", "पोर्टल", "बैंक", "पीएनबी", "योजने", "पात्र", "अर्ज", "विमा", "नियम",
 )
 
 _ABSTENTIONS = {

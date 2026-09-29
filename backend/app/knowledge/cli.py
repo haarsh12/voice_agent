@@ -34,6 +34,9 @@ async def _run(source_key: str | None) -> int:
         service = KnowledgeIngestionService(session, settings)
         if source_key:
             await service.repository.sync_source_registry()
+            recovered = await service.repository.recover_interrupted_checks()
+            if recovered:
+                logging.warning("knowledge_interrupted_checks_recovered count=%s", recovered)
             source = SOURCES_BY_KEY.get(source_key)
             if source is None:
                 logging.error("knowledge_worker_unknown_source")
@@ -48,6 +51,10 @@ async def _run(source_key: str | None) -> int:
 
 def main() -> None:
     configure_logging()
+    # HTTP libraries otherwise log every official URL and cloud request at INFO.
+    # Worker telemetry records source keys and outcome counts without turning
+    # operational logs into a document catalogue.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(description="Run due Sahayak verified-knowledge source checks.")
     parser.add_argument("--source", choices=sorted(SOURCES_BY_KEY), help="Check one reviewed source immediately.")
     arguments = parser.parse_args()

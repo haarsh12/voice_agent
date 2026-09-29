@@ -10,6 +10,7 @@ from zipfile import ZipFile
 from pypdf import PdfReader
 
 from app.knowledge.contracts import ExtractedSourceDocument, FetchedDocument
+from app.knowledge.ocr import OcrProvider
 
 
 class SourceExtractionError(RuntimeError):
@@ -57,7 +58,12 @@ class _VisibleTextParser(HTMLParser):
         return _clean("".join(self._text))
 
 
-def extract_source_document(document: FetchedDocument) -> ExtractedSourceDocument:
+def extract_source_document(
+    document: FetchedDocument,
+    *,
+    ocr_provider: OcrProvider | None = None,
+    max_pdf_pages: int = 300,
+) -> ExtractedSourceDocument:
     """Extract a bounded text representation without executing remote content."""
 
     content_type = document.content_type.split(";", 1)[0].strip().lower()
@@ -65,7 +71,11 @@ def extract_source_document(document: FetchedDocument) -> ExtractedSourceDocumen
         if content_type in {"text/html", "application/xhtml+xml"}:
             return _extract_html(document)
         if content_type == "application/pdf" or document.url.lower().endswith(".pdf"):
-            return _extract_pdf(document)
+            return _extract_pdf(
+                document,
+                ocr_provider=ocr_provider,
+                max_pdf_pages=max_pdf_pages,
+            )
         if content_type in {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/msword",
@@ -88,15 +98,21 @@ def _extract_html(document: FetchedDocument) -> ExtractedSourceDocument:
     return ExtractedSourceDocument(text=text, title=parser.title or _title_from_url(document.url), page_count=None, extraction_method="html")
 
 
-def _extract_pdf(document: FetchedDocument) -> ExtractedSourceDocument:
+def _extract_pdf(
+    document: FetchedDocument,
+    *,
+    ocr_provider: OcrProvider | None,
+    max_pdf_pages: int,
+) -> ExtractedSourceDocument:
     reader = PdfReader(BytesIO(document.content), strict=False)
+    if len(reader.pages) > max_pdf_pages:
+        raise SourceExtractionError("PDF exceeds the configured page limit")
     pages = [_clean(page.extract_text() or "") for page in reader.pages]
-    text = "\n\n".join(page for page in pages if page)
-    if not text:
-        # OCR is intentionally not silently improvised: an operator can attach
-        # an approved OCR adapter later while the original source URL remains
-        # available for review and this version is marked extraction-failed.
-        raise SourceExtractionError("PDF needs an approved OCR extraction adapter")
+    text = "\f".join(pages)
+    if not any(pages):
+        if ocr_provider is None:
+            raise SourceExtractionError("PDF needs an approved OCR extraction adapter")
+        return ocr_provider.extract_pdf(document)
     title = _clean(str(reader.metadata.title)) if reader.metadata and reader.metadata.title else _title_from_url(document.url)
     return ExtractedSourceDocument(text=text, title=title, page_count=len(reader.pages), extraction_method="pdf_text")
 

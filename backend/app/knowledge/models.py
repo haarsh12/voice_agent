@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.auth.models import AuthBase
@@ -23,6 +23,8 @@ class KnowledgeSource(AuthBase):
     check_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     approved_domains: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     entry_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    discovery_path_prefixes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    max_documents_per_check: Mapped[int] = mapped_column(Integer, nullable=False, default=25)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     validation_status: Mapped[str] = mapped_column(String(32), nullable=False, default="APPROVED")
     last_successful_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
@@ -119,7 +121,19 @@ class KnowledgeSourceCheck(AuthBase):
     """Append-only operational history; failure messages remain non-sensitive."""
 
     __tablename__ = "sahayak_knowledge_source_checks"
-    __table_args__ = (Index("sahayak_knowledge_source_checks_source_started_idx", "source_key", "started_at"),)
+    __table_args__ = (
+        Index("sahayak_knowledge_source_checks_source_started_idx", "source_key", "started_at"),
+        # A source group can have exactly one active check, even if a scheduler
+        # retries while a prior worker is still running. This is supported by
+        # both local SQLite and production PostgreSQL.
+        Index(
+            "sahayak_knowledge_source_checks_one_open_per_source",
+            "source_key",
+            unique=True,
+            sqlite_where=text("completed_at IS NULL"),
+            postgresql_where=text("completed_at IS NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     source_key: Mapped[str] = mapped_column(

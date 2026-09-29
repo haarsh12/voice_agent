@@ -6,11 +6,13 @@ import asyncio
 import hashlib
 import ipaddress
 import socket
+import ssl
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+import truststore
 
 from app.config.settings import Settings
 from app.knowledge.contracts import FetchedDocument
@@ -52,7 +54,11 @@ async def fetch_approved_document(
     headers = {"User-Agent": "SahayakKnowledgeBot/1.0 (+verified-source-check)"}
     headers.update(conditional_headers or {})
     timeout = httpx.Timeout(settings.knowledge_fetch_timeout_seconds)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+    # Windows and managed enterprise networks commonly install their trusted
+    # inspection root in the OS store rather than certifi. truststore uses the
+    # platform's verified roots; it never disables certificate validation.
+    tls_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=tls_context) as client:
         for _ in range(4):
             await _validate_fetch_destination(current_url, source)
             try:

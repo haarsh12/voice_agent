@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +22,14 @@ from app.knowledge.fetching import (
 )
 from app.knowledge.registry import SOURCES_BY_KEY, ApprovedSourceDefinition
 from app.knowledge.repository import KnowledgeRepository
-from app.knowledge.vectors import QdrantVectorStore, VectorRecord, VectorStoreError, VertexEmbeddingProvider
+from app.knowledge.ocr import OcrProvider, create_ocr_provider
+from app.knowledge.vectors import (
+    EmbeddingError,
+    QdrantVectorStore,
+    VectorRecord,
+    VectorStoreError,
+    VertexEmbeddingProvider,
+)
 
 logger = logging.getLogger("sahayak.knowledge.ingestion")
 
@@ -41,23 +49,34 @@ class KnowledgeIngestionService:
         self.adapter = adapter
         self.vector_store = QdrantVectorStore(settings)
         self.embedding_provider = VertexEmbeddingProvider(settings)
+        self.ocr_provider: OcrProvider | None = create_ocr_provider(settings)
 
     async def check_due_sources(self) -> dict[str, SourceCheckResult]:
         """Seed the registry, then process only sources whose configured interval is due."""
 
         await self.repository.sync_source_registry()
+        recovered = await self.repository.recover_interrupted_checks()
+        if recovered:
+            logger.warning("knowledge_interrupted_checks_recovered count=%s", recovered)
         results: dict[str, SourceCheckResult] = {}
-        for source in await self.repository.due_sources():
-            definition = SOURCES_BY_KEY.get(source.key)
+        # ``check_source`` may roll back after one failed document. Hold plain
+        # keys rather than ORM objects so an expired row cannot trigger an
+        # implicit async reload while the remaining sources are processed.
+        source_keys = [source.key for source in await self.repository.due_sources()]
+        for source_key in source_keys:
+            definition = SOURCES_BY_KEY.get(source_key)
             if definition is None:
                 continue
-            results[source.key] = await self.check_source(definition)
+            results[source_key] = await self.check_source(definition)
         return results
 
     async def check_source(self, source: ApprovedSourceDefinition) -> SourceCheckResult:
         """Check a finite source set, preserving previous current versions on failure."""
 
         check = await self.repository.create_check(source.key)
+        if check is None:
+            logger.info("knowledge_source_check_skipped source=%s reason=already_running", source.key)
+            return SourceCheckResult.UNCHANGED
         # Persist the audit row first so one failed document can be rolled back
         # without accidentally committing a partial version on a later URL.
         await self.repository.session.commit()
@@ -65,15 +84,35 @@ class KnowledgeIngestionService:
         changed = 0
         failures = 0
         try:
-            for url in self.adapter.documents_to_check(source):
+            entry_urls = {url for url in self.adapter.documents_to_check(source)}
+            pending_urls = deque(entry_urls)
+            seen_urls: set[str] = set()
+            while pending_urls and checked < source.max_documents_per_check:
+                url = pending_urls.popleft()
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
                 checked += 1
                 try:
-                    was_changed = await self._check_document(source, url)
-                except (SourceFetchError, SourceExtractionError, VectorStoreError, ValueError):
+                    was_changed, discovered_urls = await self._check_document(
+                        source,
+                        url,
+                        discover=url in entry_urls,
+                        force_discovery_refresh=url in entry_urls,
+                    )
+                except (EmbeddingError, SourceFetchError, SourceExtractionError, VectorStoreError, ValueError) as error:
                     await self.repository.session.rollback()
                     failures += 1
+                    logger.warning(
+                        "knowledge_document_check_failed source=%s reason=%s",
+                        source.key,
+                        str(error) or type(error).__name__,
+                    )
                     continue
                 changed += int(was_changed)
+                for discovered_url in discovered_urls:
+                    if discovered_url not in seen_urls:
+                        pending_urls.append(discovered_url)
         except Exception:
             # An unexpected worker failure still leaves prior CURRENT versions
             # intact; browser queries will never get an invented fallback.
@@ -88,7 +127,12 @@ class KnowledgeIngestionService:
             return SourceCheckResult.FAILED
 
         result = (
-            SourceCheckResult.PARTIAL_FAILURE
+            # If no document in a source group could be checked, do not leave
+            # it marked APPROVED. The next scheduler invocation will retry it
+            # and retrieval continues to exclude the source meanwhile.
+            SourceCheckResult.FAILED
+            if checked and failures == checked
+            else SourceCheckResult.PARTIAL_FAILURE
             if failures
             else SourceCheckResult.CHANGED
             if changed
@@ -111,13 +155,27 @@ class KnowledgeIngestionService:
         )
         return result
 
-    async def _check_document(self, source: ApprovedSourceDefinition, url: str) -> bool:
+    async def _check_document(
+        self,
+        source: ApprovedSourceDefinition,
+        url: str,
+        *,
+        discover: bool,
+        force_discovery_refresh: bool,
+    ) -> tuple[bool, tuple[str, ...]]:
         """Fetch → compare hash → extract → chunk → embed → index one source document."""
 
         latest = await self.repository.latest_version(source_key=source.key, canonical_url=url)
-        headers = conditional_request_headers(
-            etag=latest.source_metadata.get("etag") if latest else None,
-            last_modified=latest.source_metadata.get("last_modified") if latest else None,
+        # Entry pages are fetched afresh so their approved one-hop links can
+        # rebuild the bounded queue after a worker restart. The page itself is
+        # still hash-compared and never re-embedded unless its bytes changed.
+        headers = (
+            {}
+            if force_discovery_refresh
+            else conditional_request_headers(
+                etag=latest.source_metadata.get("etag") if latest else None,
+                last_modified=latest.source_metadata.get("last_modified") if latest else None,
+            )
         )
         fetched = await fetch_approved_document(
             url=url,
@@ -129,9 +187,31 @@ class KnowledgeIngestionService:
             if latest is not None:
                 latest.last_checked_at = datetime.now(UTC)
                 await self.repository.session.commit()
-            return False
+            return False, ()
 
-        extracted = extract_source_document(fetched)
+        discovered_urls = (
+            self.adapter.discover_documents(
+                source=source,
+                entry_url=fetched.canonical_url,
+                content=fetched.content,
+                content_type=fetched.content_type,
+            )
+            if discover
+            else ()
+        )
+
+        try:
+            extracted = await asyncio.wait_for(
+                asyncio.to_thread(
+                    extract_source_document,
+                    fetched,
+                    ocr_provider=self.ocr_provider,
+                    max_pdf_pages=self.settings.knowledge_pdf_max_pages,
+                ),
+                timeout=self.settings.knowledge_document_processing_timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise SourceExtractionError("source_extraction_timed_out") from error
         metadata = {
             "etag": fetched.etag or "",
             "last_modified": fetched.last_modified or "",
@@ -159,9 +239,15 @@ class KnowledgeIngestionService:
         )
         if not changed:
             await self.repository.session.commit()
-            return False
+            return False, discovered_urls
 
-        chunks = chunk_semantically(extracted.text)
+        try:
+            chunks = await asyncio.wait_for(
+                asyncio.to_thread(chunk_semantically, extracted.text),
+                timeout=self.settings.knowledge_document_processing_timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise SourceExtractionError("source_chunking_timed_out") from error
         if not chunks:
             raise SourceExtractionError("approved source did not contain indexable semantic chunks")
         stored_chunks = await self.repository.add_chunks(
@@ -171,12 +257,19 @@ class KnowledgeIngestionService:
                     "heading": chunk.heading,
                     "content": chunk.content,
                     "content_hash": chunk.content_hash,
+                    "page_number": chunk.page_number,
                     "language": None,
                 }
                 for chunk in chunks
             ],
         )
-        vectors = await asyncio.to_thread(self.embedding_provider.embed, [chunk.content for chunk in stored_chunks])
+        try:
+            vectors = await asyncio.wait_for(
+                asyncio.to_thread(self.embedding_provider.embed, [chunk.content for chunk in stored_chunks]),
+                timeout=self.settings.knowledge_document_processing_timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise EmbeddingError("embedding_generation_timed_out") from error
         if len(vectors) != len(stored_chunks):
             raise VectorStoreError("embedding_chunk_count_mismatch")
         await asyncio.to_thread(self.vector_store.ensure_collection)
@@ -218,4 +311,4 @@ class KnowledgeIngestionService:
                 # cited because its version is SUPERSEDED in PostgreSQL.
                 logger.warning("knowledge_vector_status_sync_deferred source=%s", source.key)
                 pass
-        return True
+        return True, discovered_urls

@@ -43,17 +43,38 @@ def _upgrade_development_sqlite_schema(connection: Connection) -> None:
     register or sign in. Hosted databases remain migration-owned.
     """
 
-    if "sahayak_accounts" not in inspect(connection).get_table_names():
-        return
-
-    columns = {column["name"] for column in inspect(connection).get_columns("sahayak_accounts")}
-    upgrades = {
-        "face_id_enabled": "BOOLEAN NOT NULL DEFAULT 0",
-        "last_mobile_verification_at": "DATETIME",
+    inspector = inspect(connection)
+    tables = set(inspector.get_table_names())
+    upgrades_by_table = {
+        "sahayak_accounts": {
+            "face_id_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+            "last_mobile_verification_at": "DATETIME",
+        },
+        # Local databases can predate a registry revision. Production Postgres
+        # remains migration-owned; this only keeps the ignored SQLite demo
+        # database compatible with checked-in SQLAlchemy models.
+        "sahayak_knowledge_sources": {
+            "discovery_path_prefixes": "JSON NOT NULL DEFAULT '[]'",
+            "max_documents_per_check": "INTEGER NOT NULL DEFAULT 25",
+        },
     }
-    for name, definition in upgrades.items():
-        if name not in columns:
-            connection.execute(text(f"ALTER TABLE sahayak_accounts ADD COLUMN {name} {definition}"))
+    for table, upgrades in upgrades_by_table.items():
+        if table not in tables:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        for name, definition in upgrades.items():
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
+
+    if "sahayak_knowledge_source_checks" in tables:
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "sahayak_knowledge_source_checks_one_open_per_source "
+                "ON sahayak_knowledge_source_checks (source_key) "
+                "WHERE completed_at IS NULL"
+            )
+        )
 
 
 async def ensure_development_auth_schema(engine: AsyncEngine) -> None:

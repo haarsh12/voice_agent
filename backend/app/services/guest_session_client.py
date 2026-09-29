@@ -9,14 +9,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import quote
 
+from app.knowledge.contracts import UserKnowledgeContext
+
 
 class GuestSessionClientError(RuntimeError):
     """Raised when the worker cannot read or update guest context."""
+
+
+@dataclass(frozen=True)
+class VoiceGuestContext:
+    """Capability-protected context supplied to one local voice worker."""
+
+    context: str
+    user_context: UserKnowledgeContext | None = None
 
 
 def _request_json(
@@ -60,7 +71,7 @@ async def fetch_guest_context(
     *,
     session_id: str,
     session_secret: str,
-) -> str:
+) -> VoiceGuestContext:
     """Fetch the bounded context for current instructions, without blocking audio."""
 
     response = await asyncio.to_thread(
@@ -74,7 +85,35 @@ async def fetch_guest_context(
     context = response.get("context") if response else ""
     if not isinstance(context, str):
         raise GuestSessionClientError("Guest session context is invalid.")
-    return context
+    raw_knowledge_context = response.get("knowledge_context") if response else None
+    if raw_knowledge_context is None:
+        return VoiceGuestContext(context=context)
+    if not isinstance(raw_knowledge_context, dict):
+        raise GuestSessionClientError("Guest session profile context is invalid.")
+    return VoiceGuestContext(
+        context=context,
+        user_context=UserKnowledgeContext(
+            state=_context_value(raw_knowledge_context, "state", 100),
+            district=_context_value(raw_knowledge_context, "district", 120),
+            village_or_town=_context_value(raw_knowledge_context, "village_or_town", 120),
+            user_type=_context_value(raw_knowledge_context, "user_type", 48),
+            cooperative_role=_context_value(raw_knowledge_context, "cooperative_role", 120),
+        ),
+    )
+
+
+def _context_value(payload: dict[str, Any], key: str, maximum: int) -> str | None:
+    """Validate bounded profile data crossing the local HTTP worker boundary."""
+
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise GuestSessionClientError("Guest session profile context is invalid.")
+    normalized = " ".join(value.replace("\x00", " ").split()).strip()
+    if len(normalized) > maximum:
+        raise GuestSessionClientError("Guest session profile context is invalid.")
+    return normalized or None
 
 
 async def append_voice_turn(

@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Select, select, update
+from sqlalchemy import Select, inspect, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.contracts import DocumentStatus, SourceCheckResult, SourceValidationStatus
@@ -55,11 +56,14 @@ class KnowledgeRepository:
         return [
             source
             for source in sources
-            if source.last_successful_check_at is None
+            if source.validation_status != SourceValidationStatus.APPROVED.value
+            or source.last_successful_check_at is None
             or _as_utc(source.last_successful_check_at) + timedelta(hours=source.check_interval_hours) <= now
         ]
 
-    async def create_check(self, source_key: str, *, started_at: datetime | None = None) -> KnowledgeSourceCheck:
+    async def create_check(self, source_key: str, *, started_at: datetime | None = None) -> KnowledgeSourceCheck | None:
+        """Create a source check, or return ``None`` if another worker owns it."""
+
         check = KnowledgeSourceCheck(
             id=str(uuid4()),
             source_key=source_key,
@@ -67,8 +71,50 @@ class KnowledgeRepository:
             result=SourceCheckResult.UNCHANGED.value,
         )
         self.session.add(check)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            return None
         return check
+
+    async def recover_interrupted_checks(
+        self,
+        *,
+        stale_after: timedelta = timedelta(minutes=15),
+    ) -> int:
+        """Close abandoned worker audit rows before a new scheduled run begins.
+
+        A process can be restarted by a scheduler, deployment rollout, or host
+        failure after it created a check row. Leaving that row open makes the
+        audit trail misleading. Only rows older than the grace period are
+        recovered; a second live worker must be rejected by the unique open
+        check constraint rather than being allowed to cancel the first worker.
+        """
+
+        cutoff = utc_now() - stale_after
+        unfinished = list(
+            (
+                await self.session.scalars(
+                    select(KnowledgeSourceCheck).where(
+                        KnowledgeSourceCheck.completed_at.is_(None),
+                        KnowledgeSourceCheck.started_at <= cutoff,
+                    )
+                )
+            ).all()
+        )
+        if not unfinished:
+            return 0
+        now = utc_now()
+        for check in unfinished:
+            check.completed_at = now
+            check.result = SourceCheckResult.FAILED.value
+            check.failure_code = "interrupted_worker"
+            source = await self.session.get(KnowledgeSource, check.source_key)
+            if source is not None:
+                source.validation_status = SourceValidationStatus.CHECK_FAILED.value
+        await self.session.commit()
+        return len(unfinished)
 
     async def finish_check(
         self,
@@ -82,12 +128,30 @@ class KnowledgeRepository:
         """Record an outcome without invalidating an older current document on error."""
 
         now = utc_now()
-        check.completed_at = now
-        check.result = result.value
-        check.checked_documents = checked_documents
-        check.changed_documents = changed_documents
-        check.failure_code = failure_code
-        source = await self.session.get(KnowledgeSource, check.source_key)
+        # A failed document causes an explicit rollback in the worker. SQLAlchemy
+        # expires ORM attributes on rollback, so update this audit row by its
+        # immutable identity instead of lazily reloading an expired instance.
+        identity = inspect(check).identity
+        if not identity:
+            raise RuntimeError("source check has no persisted identity")
+        check_id = str(identity[0])
+        source_key = await self.session.scalar(
+            select(KnowledgeSourceCheck.source_key).where(KnowledgeSourceCheck.id == check_id)
+        )
+        if source_key is None:
+            raise RuntimeError("source check is missing")
+        await self.session.execute(
+            update(KnowledgeSourceCheck)
+            .where(KnowledgeSourceCheck.id == check_id)
+            .values(
+                completed_at=now,
+                result=result.value,
+                checked_documents=checked_documents,
+                changed_documents=changed_documents,
+                failure_code=failure_code,
+            )
+        )
+        source = await self.session.get(KnowledgeSource, source_key)
         if source is not None:
             if result is not SourceCheckResult.FAILED:
                 source.last_successful_check_at = now
@@ -281,6 +345,8 @@ def _source_values(definition: ApprovedSourceDefinition) -> dict[str, object]:
         "check_interval_hours": definition.check_interval_hours,
         "approved_domains": list(definition.approved_domains),
         "entry_urls": list(definition.entry_urls),
+        "discovery_path_prefixes": list(definition.discovery_path_prefixes),
+        "max_documents_per_check": definition.max_documents_per_check,
         "enabled": definition.enabled,
         "validation_status": SourceValidationStatus.APPROVED.value,
     }

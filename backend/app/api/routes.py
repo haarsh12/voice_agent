@@ -128,10 +128,21 @@ class GuestSessionResponse(BaseModel):
     session_secret: str
 
 
+class VoiceKnowledgeContext(BaseModel):
+    """Location and member-type fields permitted for voice retrieval ranking."""
+
+    state: str | None = Field(default=None, max_length=100)
+    district: str | None = Field(default=None, max_length=120)
+    village_or_town: str | None = Field(default=None, max_length=120)
+    user_type: str | None = Field(default=None, max_length=48)
+    cooperative_role: str | None = Field(default=None, max_length=120)
+
+
 class GuestContextResponse(BaseModel):
     """Bounded, server-only context consumed by the local voice worker."""
 
     context: str
+    knowledge_context: VoiceKnowledgeContext | None = None
 
 
 class VoiceTurnRequest(BaseModel):
@@ -161,6 +172,26 @@ def _require_guest_session(session_id: object, secret: object):
             status_code=status.HTTP_410_GONE,
             detail="This guest session has ended. Start a new session to continue.",
         ) from error
+
+
+def _bind_account_profile_to_guest_session(
+    *,
+    session_id: str,
+    session_secret: str,
+    account: object,
+) -> None:
+    """Copy only useful, server-verified account fields into ephemeral context."""
+
+    guest_sessions.set_member_profile(
+        session_id,
+        session_secret,
+        full_name=getattr(account, "full_name", None),
+        state=getattr(account, "state", None),
+        district=getattr(account, "district", None),
+        village_or_town=getattr(account, "village_or_town", None),
+        user_type=getattr(account, "user_type", None),
+        cooperative_role=getattr(account, "cooperative_role", None),
+    )
 
 
 def _enforce_chat_rate_limit(client_host: str) -> None:
@@ -226,7 +257,22 @@ async def get_voice_guest_context(session_id: str, request: Request) -> GuestCon
         snapshot = guest_sessions.snapshot(normalized_id, secret)
     except GuestSessionError as error:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Guest session has ended.") from error
-    return GuestContextResponse(context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS))
+    profile = snapshot.member_profile
+    knowledge_context = (
+        VoiceKnowledgeContext(
+            state=profile.state,
+            district=profile.district,
+            village_or_town=profile.village_or_town,
+            user_type=profile.user_type,
+            cooperative_role=profile.cooperative_role,
+        )
+        if profile is not None
+        else None
+    )
+    return GuestContextResponse(
+        context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
+        knowledge_context=knowledge_context,
+    )
 
 
 @router.post("/internal/guest-sessions/{session_id}/voice-turns", status_code=status.HTTP_204_NO_CONTENT)
@@ -255,6 +301,8 @@ async def add_voice_guest_turn(
 async def create_token(
     request: TokenRequest | None = None,
     settings: Settings = Depends(get_settings),
+    http_request: Request = None,  # type: ignore[assignment]
+    session: AsyncSession = Depends(get_auth_session),
 ) -> ConnectionDetails:
     """Issue a fifteen-minute browser token without ever returning API secrets."""
 
@@ -279,7 +327,19 @@ async def create_token(
     if bool(guest_session_id) != bool(guest_session_secret):
         raise HTTPException(status_code=422, detail="guest session attributes are incomplete.")
     if guest_session_id and guest_session_secret:
-        _, _, _ = _require_guest_session(guest_session_id, guest_session_secret)
+        normalized_session_id, guest_session_secret, _ = _require_guest_session(
+            guest_session_id,
+            guest_session_secret,
+        )
+        guest_session_id = normalized_session_id
+        if http_request is not None:
+            account = await get_optional_current_account(http_request, session, settings)
+            if account is not None:
+                _bind_account_profile_to_guest_session(
+                    session_id=guest_session_id,
+                    session_secret=guest_session_secret,
+                    account=account,
+                )
 
     if not _SAFE_NAME.fullmatch(room_name):
         raise HTTPException(status_code=422, detail="room_name contains unsupported characters.")
@@ -363,6 +423,16 @@ async def create_text_chat_reply(
     document = attachment if isinstance(attachment, ExtractedDocument) else None
     image = attachment if attachment is not None and not isinstance(attachment, ExtractedDocument) else None
     account = await get_optional_current_account(request, session, settings)
+    if account is not None:
+        _bind_account_profile_to_guest_session(
+            session_id=guest_session_id,
+            session_secret=guest_session_secret,
+            account=account,
+        )
+        # A member may have updated their profile since the session began.
+        # Re-read the bounded context so this model call sees the same profile
+        # data that the next voice turn will receive.
+        snapshot = guest_sessions.snapshot(guest_session_id, guest_session_secret)
     user_context = (
         UserKnowledgeContext(
             state=account.state,

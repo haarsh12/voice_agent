@@ -30,11 +30,34 @@ def chunk_semantically(text: str, *, max_characters: int = 1_200, min_characters
     source format makes them available and is deterministic for idempotency.
     """
 
-    normalized = _normalize_text(text)
-    if not normalized:
-        return []
     if max_characters < 400:
         raise ValueError("max_characters must preserve meaningful source context")
+
+    raw_pages = text.split("\f")
+    page_numbered = len(raw_pages) > 1
+    chunks: list[SemanticChunk] = []
+    for index, raw_page in enumerate(raw_pages, start=1):
+        normalized = _normalize_text(raw_page)
+        if normalized:
+            chunks.extend(
+                _chunk_page(
+                    normalized,
+                    page_number=index if page_numbered else None,
+                    max_characters=max_characters,
+                    min_characters=min_characters,
+                )
+            )
+    return chunks
+
+
+def _chunk_page(
+    normalized: str,
+    *,
+    page_number: int | None,
+    max_characters: int,
+    min_characters: int,
+) -> list[SemanticChunk]:
+    """Chunk one source page so citations retain a precise page reference."""
 
     chunks: list[SemanticChunk] = []
     heading: str | None = None
@@ -46,7 +69,7 @@ def chunk_semantically(text: str, *, max_characters: int = 1_200, min_characters
             return
         content = "\n\n".join(buffer).strip()
         if content:
-            chunks.append(_chunk(content, heading))
+            chunks.append(_chunk(content, heading, page_number))
         buffer = []
 
     for paragraph in _PARAGRAPH_BREAK.split(normalized):
@@ -78,7 +101,7 @@ def chunk_semantically(text: str, *, max_characters: int = 1_200, min_characters
         previous, tail = chunks[-2], chunks[-1]
         combined = f"{previous.content}\n\n{tail.content}"
         if len(combined) <= max_characters + min_characters:
-            chunks[-2:] = [_chunk(combined, previous.heading or tail.heading)]
+            chunks[-2:] = [_chunk(combined, previous.heading or tail.heading, page_number)]
     return chunks
 
 
@@ -124,5 +147,10 @@ def _split_oversized_paragraph(paragraph: str, max_characters: int) -> list[str]
     return pieces
 
 
-def _chunk(content: str, heading: str | None) -> SemanticChunk:
-    return SemanticChunk(content=content, content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(), heading=heading)
+def _chunk(content: str, heading: str | None, page_number: int | None) -> SemanticChunk:
+    return SemanticChunk(
+        content=content,
+        content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        heading=heading,
+        page_number=page_number,
+    )

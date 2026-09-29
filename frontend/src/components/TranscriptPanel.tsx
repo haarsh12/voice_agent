@@ -42,7 +42,7 @@ function sourceWebsiteAddress(url: string): string {
 
 export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }: TranscriptPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const lastEntryRef = useRef<HTMLLIElement>(null)
+  const followsLatest = useRef(true)
   const documentInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -51,12 +51,21 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
   const [composerError, setComposerError] = useState<string | null>(null)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
 
-  // Auto-scroll to bottom when new entries are added
+  // Follow streamed speech only while the member is already reading the most
+  // recent entry. Using the panel's own scroll position avoids scrollIntoView,
+  // which can also move and lock the surrounding page during a voice reply.
   useEffect(() => {
-    if (lastEntryRef.current) {
-      lastEntryRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
+    const container = scrollContainerRef.current
+    if (!container || !followsLatest.current) return
+    container.scrollTo({ top: container.scrollHeight, behavior: 'auto' })
   }, [entries])
+
+  function updateFollowState(): void {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const remaining = container.scrollHeight - container.scrollTop - container.clientHeight
+    followsLatest.current = remaining <= 56
+  }
 
   function clearDocument(): void {
     setDocument(null)
@@ -118,29 +127,32 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
         <span className="live-indicator">Live</span>
       </div>
 
-      <div className="transcript-scroll-container" ref={scrollContainerRef}>
+      <div
+        className="transcript-scroll-container"
+        onScroll={updateFollowState}
+        ref={scrollContainerRef}
+      >
         {entries.length === 0 ? (
           <p className="transcript-panel__empty">
             Your conversation will appear here as speech is transcribed.
           </p>
         ) : (
           <ol className="transcript-list">
-            {entries.map((entry, index) => (
+            {entries.map((entry) => (
               <li 
                 className={`transcript-entry transcript-entry--${entry.role}`} 
                 key={entry.id}
-                ref={index === entries.length - 1 ? lastEntryRef : null}
               >
                 <span className="transcript-entry__role">
                   {entry.role === 'assistant' ? 'Sahayak AI' : 'You'}
                 </span>
                 <p>{entry.text}</p>
-                {entry.role === 'assistant' && entry.source === 'text' && entry.evidenceStatus && (
+                {entry.role === 'assistant' && entry.evidenceStatus && (
                   <span className={`transcript-entry__evidence transcript-entry__evidence--${entry.evidenceStatus.toLowerCase()}`}>
                     {evidenceStatusLabel[entry.evidenceStatus]}
                   </span>
                 )}
-                {entry.role === 'assistant' && entry.source === 'text' && entry.sources && entry.sources.length > 0 && (
+                {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
                   <footer className="transcript-entry__sources" aria-label="Verified official sources">
                     <span>Verified official source{entry.sources.length > 1 ? 's' : ''}</span>
                     {entry.sources.map((source) => (

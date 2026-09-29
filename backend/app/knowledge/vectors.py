@@ -55,19 +55,46 @@ class VertexEmbeddingProvider:
             return []
         try:
             client = create_gemini_client(self.settings)
-            response = client.models.embed_content(
-                model=self.settings.knowledge_embedding_model,
-                contents=list(texts),
-            )
-            embeddings = getattr(response, "embeddings", None) or []
-            vectors = [list(getattr(embedding, "values", [])) for embedding in embeddings]
+            vectors: list[list[float]] = []
+            batch_size = self.settings.knowledge_embedding_batch_size
+            for start in range(0, len(texts), batch_size):
+                vectors.extend(self._embed_batch(client, list(texts[start : start + batch_size])))
         except MissingConfigurationError:
             raise
         except Exception as error:
             raise EmbeddingError("embedding_generation_failed") from error
         if len(vectors) != len(texts) or any(not vector for vector in vectors):
             raise EmbeddingError("embedding_response_invalid")
+        if any(len(vector) != self.settings.knowledge_embedding_dimensions for vector in vectors):
+            raise EmbeddingError("embedding_dimension_mismatch")
         return vectors
+
+    def _embed_batch(self, client: object, texts: list[str]) -> list[list[float]]:
+        """Embed a bounded batch, bisecting only provider-rejected batches.
+
+        Government PDFs occasionally yield dense, encoding-heavy text. A
+        provider can reject an otherwise valid multi-item request because of a
+        request-level limit. Retrying recursively preserves order and lets a
+        single bad chunk fail closed without discarding an entire document.
+        """
+
+        try:
+            response = client.models.embed_content(  # type: ignore[attr-defined]
+                model=self.settings.knowledge_embedding_model,
+                contents=texts,
+            )
+            embeddings = getattr(response, "embeddings", None) or []
+            vectors = [list(getattr(embedding, "values", [])) for embedding in embeddings]
+            if len(vectors) != len(texts) or any(not vector for vector in vectors):
+                raise EmbeddingError("embedding_response_invalid")
+            return vectors
+        except EmbeddingError:
+            raise
+        except Exception as error:
+            if len(texts) == 1:
+                raise EmbeddingError("embedding_generation_failed") from error
+            midpoint = len(texts) // 2
+            return self._embed_batch(client, texts[:midpoint]) + self._embed_batch(client, texts[midpoint:])
 
 
 class QdrantVectorStore:
@@ -76,30 +103,70 @@ class QdrantVectorStore:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._base_url = settings.qdrant_url.rstrip("/")
+        self._collection_ready = False
 
     @property
     def configured(self) -> bool:
         return bool(self._base_url)
 
     def ensure_collection(self) -> None:
-        """Create the collection exactly once, without changing an existing index."""
+        """Create and validate the vector and payload contracts exactly once."""
 
+        if self._collection_ready:
+            return
         self._require_safe_endpoint()
         collection = self.settings.qdrant_collection
         response = self._request("GET", f"/collections/{collection}", expected={200, 404})
         if response.status_code == 200:
-            return
-        self._request(
-            "PUT",
-            f"/collections/{collection}",
-            json={
-                "vectors": {
-                    "size": self.settings.knowledge_embedding_dimensions,
-                    "distance": "Cosine",
-                }
-            },
-            expected={200},
-        )
+            self._validate_existing_collection(response)
+        else:
+            self._request(
+                "PUT",
+                f"/collections/{collection}",
+                json={
+                    "vectors": {
+                        "size": self.settings.knowledge_embedding_dimensions,
+                        "distance": "Cosine",
+                    }
+                },
+                expected={200},
+            )
+        self._ensure_payload_indexes()
+        self._collection_ready = True
+
+    def _ensure_payload_indexes(self) -> None:
+        """Create the keyword indexes required by server-side Qdrant filters."""
+
+        for field_name in (
+            "document_status",
+            "source_key",
+            "state",
+            "district",
+            "language",
+            "scheme_key",
+        ):
+            self._request(
+                "PUT",
+                f"/collections/{self.settings.qdrant_collection}/index?wait=true",
+                json={"field_name": field_name, "field_schema": "keyword"},
+                expected={200},
+            )
+
+    def _validate_existing_collection(self, response: httpx.Response) -> None:
+        """Refuse a collection whose vector contract differs from this service."""
+
+        try:
+            vectors = response.json()["result"]["config"]["params"]["vectors"]
+            if not isinstance(vectors, dict):
+                raise ValueError("unnamed vectors missing")
+            size = int(vectors["size"])
+            distance = str(vectors["distance"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise VectorStoreError("qdrant_collection_config_invalid") from error
+        if size != self.settings.knowledge_embedding_dimensions:
+            raise VectorStoreError("qdrant_collection_dimension_mismatch")
+        if distance.casefold() != "cosine":
+            raise VectorStoreError("qdrant_collection_distance_mismatch")
 
     def upsert(self, records: Sequence[VectorRecord]) -> None:
         if not records:
@@ -134,7 +201,13 @@ class QdrantVectorStore:
             expected={200},
         )
         try:
-            points = response.json()["result"]["points"]
+            # Qdrant 1.10 returned ``result.points`` while current Cloud
+            # releases return the points array directly in ``result``. Accept
+            # only these two documented envelopes, never arbitrary payloads.
+            result = response.json()["result"]
+            points = result["points"] if isinstance(result, dict) else result
+            if not isinstance(points, list):
+                raise TypeError("query result is not a point list")
             return [VectorHit(point_id=str(point["id"]), score=float(point["score"])) for point in points]
         except (KeyError, TypeError, ValueError) as error:
             raise VectorStoreError("qdrant_response_invalid") from error
@@ -162,7 +235,9 @@ class QdrantVectorStore:
         except httpx.HTTPError as error:
             raise VectorStoreError("qdrant_request_failed") from error
         if response.status_code not in expected:
-            raise VectorStoreError("qdrant_request_rejected")
+            # The status code is safe operational telemetry; response bodies
+            # may contain provider or proxy details and stay private.
+            raise VectorStoreError(f"qdrant_request_rejected_{response.status_code}")
         return response
 
     def _require_safe_endpoint(self) -> None:

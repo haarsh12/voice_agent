@@ -87,9 +87,15 @@ class Settings(BaseSettings):
     qdrant_collection: str = "sahayak_verified_knowledge"
     knowledge_embedding_model: str = "text-embedding-004"
     knowledge_embedding_dimensions: int = Field(default=768, ge=64, le=4096)
+    knowledge_embedding_batch_size: int = Field(default=128, ge=1, le=128)
     knowledge_retrieval_limit: int = Field(default=8, ge=1, le=25)
     knowledge_fetch_timeout_seconds: float = Field(default=20.0, ge=1.0, le=60.0)
     knowledge_max_document_bytes: int = Field(default=8 * 1024 * 1024, ge=64 * 1024, le=32 * 1024 * 1024)
+    knowledge_pdf_max_pages: int = Field(default=300, ge=1, le=1_000)
+    knowledge_document_processing_timeout_seconds: float = Field(default=120.0, ge=10.0, le=600.0)
+    knowledge_ocr_provider: str = "disabled"
+    knowledge_ocr_max_pages: int = Field(default=20, ge=1, le=50)
+    knowledge_ocr_render_dpi: int = Field(default=180, ge=100, le=300)
 
     # Google Cloud TTS defaults. The live selector supplies the locale-specific
     # Chirp 3 HD voice for every supported language.

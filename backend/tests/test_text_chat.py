@@ -293,6 +293,29 @@ def test_guest_session_store_rejects_an_invalid_capability() -> None:
         raise AssertionError("the context must require the matching guest capability")
 
 
+def test_guest_session_profile_context_is_bounded_and_excludes_sensitive_account_data() -> None:
+    store = GuestSessionStore()
+    session_id, secret = store.create()
+    store.set_member_profile(
+        session_id,
+        secret,
+        full_name="  Asha\x00  Devi  ",
+        state="Maharashtra",
+        district="Pune",
+        village_or_town="Baramati",
+        user_type="farmer",
+        cooperative_role="PACS member",
+    )
+
+    context = store.snapshot(session_id, secret).render_context(max_characters=2_000)
+
+    assert "Name: Asha Devi" in context
+    assert "District: Pune" in context
+    assert "Member type: farmer" in context
+    assert "phone" not in context.casefold()
+    assert "address" not in context.casefold()
+
+
 def test_authoritative_question_without_retrieved_evidence_abstains(monkeypatch, client) -> None:
     def fail_if_called(*_args, **_kwargs) -> str:
         raise AssertionError("Gemini must not answer unverified scheme information")

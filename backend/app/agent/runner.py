@@ -6,7 +6,9 @@ import asyncio
 import json
 import logging
 import re
+from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +21,7 @@ from livekit.agents import (
     TurnHandlingOptions,
     cli,
     inference,
+    llm,
     room_io,
 )
 from livekit.plugins import ai_coustics
@@ -32,8 +35,11 @@ from app.agent.providers import (
     update_stt_language,
     update_tts_language,
 )
+from app.auth.session import ensure_development_auth_schema, get_engine
 from app.config.settings import MissingConfigurationError, get_settings
 from app.core.logging import configure_logging
+from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
+from app.knowledge.voice import VoiceKnowledgeService, VoiceKnowledgeTurn
 from app.services.guest_session_client import (
     GuestSessionClientError,
     append_voice_turn,
@@ -44,6 +50,7 @@ _BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 _PROJECT_DIRECTORY = _BACKEND_DIRECTORY.parent
 _LANGUAGE_CONTROL_TOPIC = "sahayak.language.v1"
 _CONTEXT_CONTROL_TOPIC = "sahayak.context.v1"
+_CITATION_CONTROL_TOPIC = "sahayak.citations.v1"
 _MAX_LANGUAGE_CONTROL_BYTES = 256
 _VOICE_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>")
 _INTERNAL_VOICE_TAGS = frozenset({"analysis", "reasoning", "thought", "thinking"})
@@ -52,6 +59,21 @@ _INTERNAL_VOICE_BLOCK_PATTERN = re.compile(
     r"(?:<\s*/\s*(?:analysis|reasoning|thought|thinking)\s*>|$)",
     re.IGNORECASE,
 )
+VOICE_TURN_HANDLING_OPTIONS: TurnHandlingOptions = {
+    "turn_detection": inference.TurnDetector(),
+    "interruption": {
+        "enabled": True,
+        "min_duration": 0.35,
+        "min_words": 1,
+        # A member's spoken follow-up must replace an unfinished answer.
+        "resume_false_interruption": False,
+        "false_interruption_timeout": None,
+        "backchannel_boundary": None,
+    },
+    # Waiting for a completed utterance prevents a draft answer from surviving
+    # a changed or interrupted user request.
+    "preemptive_generation": {"enabled": False},
+}
 
 # Let the agent process see the same local credentials as FastAPI. A
 # backend/.env remains the preferred place for backend-specific overrides.
@@ -64,13 +86,76 @@ configure_logging()
 logger = logging.getLogger("sahayak.agent")
 
 
+@dataclass(frozen=True)
+class VoiceCitationUpdate:
+    """Citation data published visually after the matching voice reply."""
+
+    evidence_status: EvidenceStatus
+    citations: tuple[Citation, ...]
+
+
 class SahayakAssistant(Agent):
     """The language-aware, voice-first assistant persona."""
 
-    def __init__(self, active_language: str, guest_context: str = "") -> None:
+    def __init__(
+        self,
+        active_language: str,
+        knowledge_service: VoiceKnowledgeService,
+        guest_context: str = "",
+        user_context: UserKnowledgeContext | None = None,
+    ) -> None:
         super().__init__(
             instructions=build_voice_assistant_instructions(
                 LANGUAGE_NAMES[active_language], guest_context
+            )
+        )
+        self._active_language = active_language
+        self._knowledge_service = knowledge_service
+        self._user_context = user_context
+        self._citation_updates: deque[VoiceCitationUpdate] = deque(maxlen=8)
+
+    def set_active_language(self, language: str) -> None:
+        """Keep retrieval abstentions in the same language as STT/TTS."""
+
+        self._active_language = language
+
+    def consume_citation_update(self) -> VoiceCitationUpdate | None:
+        """Pair the oldest grounded user turn with its completed assistant turn."""
+
+        return self._citation_updates.popleft() if self._citation_updates else None
+
+    def discard_pending_citation_updates(self) -> None:
+        """Discard metadata for a reply that the member has interrupted."""
+
+        self._citation_updates.clear()
+
+    def set_user_context(self, user_context: UserKnowledgeContext | None) -> None:
+        """Keep location-aware retrieval aligned with the current profile snapshot."""
+
+        self._user_context = user_context
+
+    async def on_user_turn_completed(
+        self,
+        turn_ctx: llm.ChatContext,
+        new_message: llm.ChatMessage,
+    ) -> None:
+        """Ground the next voice response before the LiveKit LLM starts."""
+
+        message = _conversation_item_text(new_message)
+        if not message:
+            return
+        knowledge_turn: VoiceKnowledgeTurn = await self._knowledge_service.prepare_turn(
+            message=message,
+            language=self._active_language,
+            user_context=self._user_context,
+        )
+        # This context is scoped to this one reply. The LLM receives evidence
+        # text but never source URLs, and TTS receives only the final answer.
+        turn_ctx.add_message(role="developer", content=knowledge_turn.instructions)
+        self._citation_updates.append(
+            VoiceCitationUpdate(
+                evidence_status=knowledge_turn.evidence_status,
+                citations=knowledge_turn.citations,
             )
         )
 
@@ -185,6 +270,14 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
 
     settings = get_settings()
     settings.require_agent_providers()
+    engine = get_engine()
+    if (
+        engine is not None
+        and not settings.is_production
+        and settings.async_database_url
+        and settings.async_database_url.startswith("sqlite")
+    ):
+        await ensure_development_auth_schema(engine)
     ctx.log_context_fields = {"room": ctx.room.name}
 
     # Waiting is deterministic; the earlier fixed sleep raced token attributes
@@ -203,13 +296,16 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         guest_session_secret = None
 
     guest_context = ""
+    user_context: UserKnowledgeContext | None = None
     if guest_session_id and guest_session_secret:
         try:
-            guest_context = await fetch_guest_context(
+            voice_context = await fetch_guest_context(
                 settings.guest_session_api_url,
                 session_id=guest_session_id,
                 session_secret=guest_session_secret,
             )
+            guest_context = voice_context.context
+            user_context = voice_context.user_context
         except GuestSessionClientError:
             # Context enhances the call but an unavailable local API should
             # never prevent the voice agent from starting a conversation.
@@ -222,13 +318,17 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         active_language,
     )
 
-    assistant = SahayakAssistant(active_language, guest_context)
+    assistant = SahayakAssistant(
+        active_language,
+        VoiceKnowledgeService(settings),
+        guest_context,
+        user_context,
+    )
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
         llm=create_llm(settings),
         tts=create_tts(settings, language=active_language),
-        turn_handling=TurnHandlingOptions(turn_detection=inference.TurnDetector()),
-        preemptive_generation=True,
+        turn_handling=VOICE_TURN_HANDLING_OPTIONS,
         use_tts_aligned_transcript=True,
         tts_text_transforms=["filter_markdown", "filter_emoji", strip_internal_voice_markup],
     )
@@ -249,6 +349,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             update_tts_language(session.tts, language=language)
 
         active_language = language
+        assistant.set_active_language(language)
         language_revision += 1
         logger.info(
             "language_profile_updated participant=%s language=%s source=%s revision=%s",
@@ -262,18 +363,21 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     async def refresh_guest_context() -> None:
         """Pull latest text/document history before the next voice reply."""
 
-        nonlocal guest_context
+        nonlocal guest_context, user_context
         if not guest_session_id or not guest_session_secret:
             return
         try:
-            guest_context = await fetch_guest_context(
+            voice_context = await fetch_guest_context(
                 settings.guest_session_api_url,
                 session_id=guest_session_id,
                 session_secret=guest_session_secret,
             )
+            guest_context = voice_context.context
+            user_context = voice_context.user_context
         except GuestSessionClientError:
             logger.warning("guest_context_unavailable phase=refresh")
             return
+        assistant.set_user_context(user_context)
         await assistant.update_instructions(
             build_voice_assistant_instructions(LANGUAGE_NAMES[active_language], guest_context)
         )
@@ -301,6 +405,36 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             reliable=True,
             destination_identities=[participant.identity],
             topic=_LANGUAGE_CONTROL_TOPIC,
+        )
+
+    async def publish_voice_citations(update: VoiceCitationUpdate, assistant_text: str) -> None:
+        """Send references through LiveKit data, never through the speech stream."""
+
+        payload = json.dumps(
+            {
+                "type": "voice_evidence",
+                "evidence_status": update.evidence_status.value,
+                # The UI matches this final text rather than guessing based on
+                # arrival order, which keeps citations off an interrupted turn.
+                "reply_text": assistant_text,
+                "sources": [
+                    {
+                        "name": citation.source_name,
+                        "title": citation.title,
+                        "url": citation.url,
+                        "document_version": citation.document_version,
+                        "freshness_status": citation.freshness_status.value,
+                    }
+                    for citation in update.citations
+                ],
+            },
+            separators=(",", ":"),
+        )
+        await ctx.room.local_participant.publish_data(
+            payload,
+            reliable=True,
+            destination_identities=[participant.identity],
+            topic=_CITATION_CONTROL_TOPIC,
         )
 
     def schedule_language_announcement(language: str, source: str, revision: int) -> None:
@@ -371,14 +505,26 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     def retain_final_voice_turn(event: object) -> None:
         """Merge finalized LiveKit speech into this guest session's memory."""
 
-        if not guest_session_id or not guest_session_secret:
-            return
         item = _event_value(event, "item", event)
         role = _event_value(item, "role")
         if role not in {"user", "assistant"}:
             return
         text = _conversation_item_text(item)
         if not text:
+            return
+
+        if role == "assistant":
+            if bool(_event_value(item, "interrupted", False)):
+                assistant.discard_pending_citation_updates()
+                # A partial reply must neither gain sources nor pollute the
+                # next turn's memory; the member's new utterance is primary.
+                return
+            citation_update = assistant.consume_citation_update()
+            if citation_update is not None:
+                task = asyncio.create_task(publish_voice_citations(citation_update, text))
+                task.add_done_callback(_log_background_exception)
+
+        if not guest_session_id or not guest_session_secret:
             return
 
         task = asyncio.create_task(
@@ -402,7 +548,10 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
 
     @session.on("overlapping_speech")
     def log_interruption(event: object) -> None:
-        logger.info("interruption_detected event=%s", type(event).__name__)
+        is_interruption = bool(_event_value(event, "is_interruption", False))
+        if is_interruption:
+            assistant.discard_pending_citation_updates()
+        logger.info("interruption_detected confirmed=%s", is_interruption)
 
     @session.on("agent_false_interruption")
     def log_false_interruption(event: object) -> None:

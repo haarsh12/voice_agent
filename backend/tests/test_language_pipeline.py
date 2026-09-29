@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 
 from app.agent.languages import stt_profile_for_language, voice_for_language
 from app.agent.prompts import build_voice_assistant_instructions
-from app.agent.runner import strip_internal_voice_markup
+from app.agent.runner import VOICE_TURN_HANDLING_OPTIONS, strip_internal_voice_markup
 from app.agent import providers
 from app.api import routes
 from app.services.guest_sessions import guest_sessions
@@ -119,6 +119,61 @@ def test_token_endpoint_binds_an_active_guest_context_capability(monkeypatch) ->
 
     assert received["guest_session_id"] == session_id
     assert received["guest_session_secret"] == session_secret
+
+
+def test_token_binds_server_verified_profile_to_the_private_voice_session(monkeypatch) -> None:
+    received: dict[str, object] = {}
+    session_id, session_secret = guest_sessions.create()
+
+    def fake_issue_browser_token(_settings, **kwargs):
+        received.update(kwargs)
+        return IssuedToken(server_url="wss://example.invalid", participant_token="test-token")
+
+    async def fake_optional_account(*_args: object) -> object:
+        return type(
+            "AccountProfile",
+            (),
+            {
+                "full_name": "Asha Devi",
+                "state": "Maharashtra",
+                "district": "Pune",
+                "village_or_town": "Baramati",
+                "user_type": "farmer",
+                "cooperative_role": "PACS member",
+            },
+        )()
+
+    settings = type("TokenSettings", (), {"require_token_issuer": lambda self: None})()
+    monkeypatch.setattr(routes, "issue_browser_token", fake_issue_browser_token)
+    monkeypatch.setattr(routes, "get_optional_current_account", fake_optional_account)
+
+    asyncio.run(
+        routes.create_token(
+            routes.TokenRequest.model_validate(
+                {
+                    "participant_attributes": {
+                        "guest_session_id": session_id,
+                        "guest_session_secret": session_secret,
+                    }
+                }
+            ),
+            settings,
+            http_request=object(),  # The account resolver is mocked above.
+            session=object(),
+        )
+    )
+
+    context = guest_sessions.snapshot(session_id, session_secret).render_context(max_characters=2_000)
+    assert "Name: Asha Devi" in context
+    assert "District: Pune" in context
+    assert received["guest_session_id"] == session_id
+
+
+def test_voice_turn_options_cancel_old_speech_for_a_new_completed_utterance() -> None:
+    interruption = VOICE_TURN_HANDLING_OPTIONS["interruption"]
+    assert interruption["resume_false_interruption"] is False
+    assert interruption["false_interruption_timeout"] is None
+    assert VOICE_TURN_HANDLING_OPTIONS["preemptive_generation"]["enabled"] is False
 
 
 def test_stt_uses_the_selected_language_profile_without_unsupported_punctuation(monkeypatch) -> None:

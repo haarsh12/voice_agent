@@ -103,9 +103,11 @@ answer has retrieved a current chunk from a reviewed source document.
 The initial registry contains exactly the ten approved source groups from the
 project brief: Ministry of Cooperation, National Cooperative Database, CRCS,
 India Code, State RCS / Cooperative Departments, PMFBY, Ministry of
-Agriculture & Farmers Welfare, myScheme, RBI, and CPGRAMS. It starts narrowly
-with reviewed registry entry URLs; it does not crawl arbitrary outbound links,
-search results, social media, or user-provided web pages.
+Agriculture & Farmers Welfare, myScheme, RBI, and CPGRAMS. Each source has a
+reviewed entry page and path-scoped, one-hop discovery adapter for circulars,
+notifications, guidelines, and formal documents. The worker does not crawl
+arbitrary outbound links, search results, social media, or user-provided web
+pages.
 
 The online chat path does not fetch or ingest documents. It searches only the
 backend-configured Qdrant collection, then verifies each result against the
@@ -120,8 +122,10 @@ a model-generated official-looking answer.
 1. Apply [20260928_add_verified_knowledge_engine.sql](/D:/voice_stream/supabase/migrations/20260928_add_verified_knowledge_engine.sql) after the existing account migrations.
 2. Configure `QDRANT_URL`, optional `QDRANT_API_KEY`,
    `QDRANT_COLLECTION`, `GOOGLE_APPLICATION_CREDENTIALS`, and
-   `KNOWLEDGE_EMBEDDING_MODEL` in the backend deployment secret store. Do not
-   put any of them in `frontend/.env` or a `VITE_` variable.
+   `KNOWLEDGE_EMBEDDING_MODEL` in the backend deployment secret store. To OCR
+   scanned PDFs, enable Google Cloud Vision for the configured service account
+   and set `KNOWLEDGE_OCR_PROVIDER=google_cloud_vision`. Do not put any of
+   them in `frontend/.env` or a `VITE_` variable.
 3. Run a separate scheduled worker, for example:
 
        cd backend
@@ -135,7 +139,9 @@ a model-generated official-looking answer.
 
 Qdrant credentials, source content, ingestion diagnostics, and database
 records remain server-side. The browser receives only the answer, its evidence
-status, and citation metadata needed to open the source document.
+status, and citation metadata needed to open the source document. LiveKit voice
+turns use the same retrieval path; the agent never speaks citations or URLs,
+while the browser displays verified source links underneath the voice reply.
 
 ## Run locally
 

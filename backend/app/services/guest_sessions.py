@@ -25,6 +25,70 @@ MAX_DOCUMENT_REFERENCES = 3
 MAX_AGENT_CONTEXT_CHARACTERS = 18_000
 
 
+@dataclass(frozen=True)
+class MemberProfile:
+    """The minimum account data useful for personalized assistance.
+
+    This intentionally omits a phone number, street address, account ID, and
+    any authentication data.  The values are stored only in the same
+    short-lived, capability-protected session as the conversation.
+    """
+
+    full_name: str | None = None
+    state: str | None = None
+    district: str | None = None
+    village_or_town: str | None = None
+    user_type: str | None = None
+    cooperative_role: str | None = None
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        full_name: object = None,
+        state: object = None,
+        district: object = None,
+        village_or_town: object = None,
+        user_type: object = None,
+        cooperative_role: object = None,
+    ) -> "MemberProfile":
+        """Normalize profile strings before they enter model context."""
+
+        return cls(
+            full_name=_clean_profile_value(full_name, 120),
+            state=_clean_profile_value(state, 100),
+            district=_clean_profile_value(district, 120),
+            village_or_town=_clean_profile_value(village_or_town, 120),
+            user_type=_clean_profile_value(user_type, 48),
+            cooperative_role=_clean_profile_value(cooperative_role, 120),
+        )
+
+    def render_context(self) -> str:
+        """Render account fields as data, never as model instructions."""
+
+        fields = (
+            ("Name", self.full_name),
+            ("State", self.state),
+            ("District", self.district),
+            ("Village or town", self.village_or_town),
+            ("Member type", self.user_type),
+            ("Cooperative role", self.cooperative_role),
+        )
+        lines = [f"{label}: {value}" for label, value in fields if value]
+        if not lines:
+            return ""
+        return "ACCOUNT PROFILE DATA START\n" + "\n".join(lines) + "\nACCOUNT PROFILE DATA END"
+
+
+def _clean_profile_value(value: object, maximum: int) -> str | None:
+    """Remove control characters and bound user-controlled profile data."""
+
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.replace("\x00", " ").split()).strip()
+    return normalized[:maximum] or None
+
+
 class GuestSessionError(ValueError):
     """Raised when an anonymous session capability is invalid or expired."""
 
@@ -45,6 +109,7 @@ class GuestSessionSnapshot:
     session_id: str
     history: tuple[GuestTurn, ...]
     documents: tuple[ExtractedDocument, ...]
+    member_profile: MemberProfile | None = None
 
     def render_context(self, *, max_characters: int) -> str:
         """Render recent history and useful document excerpts within a hard bound.
@@ -60,6 +125,10 @@ class GuestSessionSnapshot:
             return ""
 
         sections: list[str] = []
+        if self.member_profile is not None:
+            profile_context = self.member_profile.render_context()
+            if profile_context:
+                sections.append(profile_context)
         history_budget = min(6_000, max_characters // 3)
         history_lines: deque[str] = deque()
         used_history = 0
@@ -120,6 +189,7 @@ class _GuestSession:
     expires_at: float
     turns: deque[GuestTurn] = field(default_factory=deque)
     documents: deque[ExtractedDocument] = field(default_factory=deque)
+    member_profile: MemberProfile | None = None
 
 
 class GuestSessionStore:
@@ -153,7 +223,38 @@ class GuestSessionStore:
                 session_id=session_id,
                 history=tuple(session.turns),
                 documents=tuple(session.documents),
+                member_profile=session.member_profile,
             )
+
+    def set_member_profile(
+        self,
+        session_id: str,
+        secret: str,
+        *,
+        full_name: object = None,
+        state: object = None,
+        district: object = None,
+        village_or_town: object = None,
+        user_type: object = None,
+        cooperative_role: object = None,
+    ) -> None:
+        """Attach server-verified account context to this ephemeral session.
+
+        Callers must already have authenticated the account on the backend;
+        the browser never supplies these values through LiveKit attributes.
+        """
+
+        profile = MemberProfile.create(
+            full_name=full_name,
+            state=state,
+            district=district,
+            village_or_town=village_or_town,
+            user_type=user_type,
+            cooperative_role=cooperative_role,
+        )
+        with self._lock:
+            session = self._authorize_locked(session_id, secret)
+            session.member_profile = profile
 
     def append_turn(self, session_id: str, secret: str, *, role: str, text: str, source: str) -> None:
         """Store one bounded final turn, deduplicating immediate repeats."""

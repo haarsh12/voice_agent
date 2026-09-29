@@ -42,7 +42,11 @@ class KnowledgeRetriever:
             hits = await asyncio.to_thread(
                 self.vector_store.search,
                 vectors[0],
-                limit=self.settings.knowledge_retrieval_limit,
+                # Several top vector hits may be filtered out later because a
+                # source check failed or a version changed. Oversample at the
+                # vector layer, then retain only relationally CURRENT,
+                # approved evidence below.
+                limit=min(self.settings.knowledge_retrieval_limit * 5, 100),
                 filters=filters,
             )
         except Exception:
@@ -90,7 +94,7 @@ class KnowledgeRetriever:
             len(evidence),
             round((time.perf_counter() - started_at) * 1_000),
         )
-        return RetrievalResult(evidence=tuple(evidence))
+        return RetrievalResult(evidence=tuple(evidence[: self.settings.knowledge_retrieval_limit]))
 
 
 def format_evidence_for_model(evidence: tuple[RetrievedEvidence, ...], *, max_characters: int = 10_000) -> str:

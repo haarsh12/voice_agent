@@ -11,6 +11,8 @@ create table if not exists public.sahayak_knowledge_sources (
   check_interval_hours integer not null check (check_interval_hours > 0),
   approved_domains jsonb not null,
   entry_urls jsonb not null,
+  discovery_path_prefixes jsonb not null default '[]'::jsonb,
+  max_documents_per_check integer not null default 25 check (max_documents_per_check between 1 and 100),
   enabled boolean not null default true,
   validation_status varchar(32) not null default 'APPROVED' check (
     validation_status in ('APPROVED', 'DISABLED', 'CHECK_FAILED', 'REVIEW_REQUIRED')
@@ -21,6 +23,13 @@ create table if not exists public.sahayak_knowledge_sources (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Keep this migration safe for an environment where the source table was
+-- provisioned from an earlier revision before discovery adapters existed.
+alter table public.sahayak_knowledge_sources
+  add column if not exists discovery_path_prefixes jsonb not null default '[]'::jsonb;
+alter table public.sahayak_knowledge_sources
+  add column if not exists max_documents_per_check integer not null default 25;
 
 create table if not exists public.sahayak_knowledge_documents (
   id varchar(36) primary key,
@@ -108,6 +117,9 @@ create table if not exists public.sahayak_knowledge_source_checks (
 
 create index if not exists sahayak_knowledge_source_checks_source_started_idx
   on public.sahayak_knowledge_source_checks (source_key, started_at desc);
+create unique index if not exists sahayak_knowledge_source_checks_one_open_per_source
+  on public.sahayak_knowledge_source_checks (source_key)
+  where completed_at is null;
 
 drop trigger if exists sahayak_knowledge_sources_touch_updated_at on public.sahayak_knowledge_sources;
 create trigger sahayak_knowledge_sources_touch_updated_at

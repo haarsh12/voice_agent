@@ -3,16 +3,34 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from datetime import UTC, datetime
+from io import BytesIO
+
+from pypdf import PdfWriter
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.auth.models import AuthBase
+from app.config.settings import Settings
 from app.knowledge.chunking import chunk_semantically
-from app.knowledge.contracts import DocumentStatus, RetrievalResult, SourceValidationStatus
+from app.knowledge.contracts import (
+    Citation,
+    DocumentStatus,
+    ExtractedSourceDocument,
+    FetchedDocument,
+    RetrievedEvidence,
+    RetrievalResult,
+    SourceValidationStatus,
+)
+from app.knowledge.adapters import DEFAULT_SOURCE_ADAPTER
+from app.knowledge.extraction import extract_source_document
 from app.knowledge.models import KnowledgeSource
 from app.knowledge.policy import decide_response
 from app.knowledge.registry import SOURCE_REGISTRY, SOURCES_BY_KEY, is_approved_source_url
 from app.knowledge.repository import KnowledgeRepository
+from app.knowledge.vectors import VertexEmbeddingProvider
+import app.knowledge.vectors as vectors_module
 
 
 def test_source_registry_contains_exactly_the_ten_approved_source_groups() -> None:
@@ -41,6 +59,25 @@ def test_registry_rejects_userinfo_http_and_unapproved_redirect_targets() -> Non
     assert not is_approved_source_url("https://attacker.example/pmfby.gov.in", source)
 
 
+def test_source_discovery_is_one_hop_path_scoped_and_rejects_external_links() -> None:
+    source = SOURCES_BY_KEY["pmfby"]
+    links = b"""
+        <a href='/notification/latest-guidelines.pdf'>approved</a>
+        <a href='/not-a-reviewed-path.pdf'>rejected</a>
+        <a href='https://attacker.example/notification/forged.pdf'>rejected</a>
+        <a href='javascript:alert(1)'>rejected</a>
+    """
+
+    discovered = DEFAULT_SOURCE_ADAPTER.discover_documents(
+        source=source,
+        entry_url="https://pmfby.gov.in/",
+        content=links,
+        content_type="text/html",
+    )
+
+    assert discovered == ("https://pmfby.gov.in/notification/latest-guidelines.pdf",)
+
+
 def test_semantic_chunking_keeps_heading_with_its_related_paragraphs() -> None:
     chunks = chunk_semantically(
         "ELIGIBILITY\n\nFarmers must check the current official notification.\n\n"
@@ -51,6 +88,68 @@ def test_semantic_chunking_keeps_heading_with_its_related_paragraphs() -> None:
     assert chunks[0].heading == "ELIGIBILITY"
     assert "Farmers" in chunks[0].content
     assert chunks[1].heading == "CLAIM PROCESS"
+
+
+def test_semantic_chunking_preserves_pdf_page_numbers() -> None:
+    chunks = chunk_semantically(
+        "FIRST PAGE\n\nThis is enough text to remain with its official page."
+        "\fSECOND PAGE\n\nThis is separate official source text."
+    )
+
+    assert [chunk.page_number for chunk in chunks] == [1, 2]
+
+
+def test_scanned_pdf_uses_only_the_configured_ocr_adapter() -> None:
+    class FakeOcr:
+        def extract_pdf(self, document: FetchedDocument) -> ExtractedSourceDocument:
+            assert document.url == "https://pmfby.gov.in/notification/scan.pdf"
+            return ExtractedSourceDocument(
+                text="OCR page text",
+                title="Scanned circular",
+                page_count=1,
+                extraction_method="fake_ocr",
+                is_ocr=True,
+                ocr_confidence=0.98,
+            )
+
+    buffer = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.write(buffer)
+    content = buffer.getvalue()
+    document = FetchedDocument(
+        url="https://pmfby.gov.in/notification/scan.pdf",
+        canonical_url="https://pmfby.gov.in/notification/scan.pdf",
+        content=content,
+        content_type="application/pdf",
+        content_hash=hashlib.sha256(content).hexdigest(),
+        fetched_at=datetime.now(UTC),
+    )
+
+    extracted = extract_source_document(document, ocr_provider=FakeOcr())
+
+    assert extracted.extraction_method == "fake_ocr"
+    assert extracted.is_ocr is True
+
+
+def test_embedding_provider_splits_a_provider_rejected_batch_without_reordering(monkeypatch) -> None:
+    class FakeModels:
+        def embed_content(self, *, model: str, contents: list[str]) -> object:
+            del model
+            if len(contents) > 1:
+                raise RuntimeError("request batch too large")
+            return type("Response", (), {"embeddings": [type("Embedding", (), {"values": [float(len(contents[0]))] + [1.0] * 63})()]})()
+
+    fake_client = type("Client", (), {"models": FakeModels()})()
+    monkeypatch.setattr(vectors_module, "create_gemini_client", lambda _: fake_client)
+    provider = VertexEmbeddingProvider(
+        Settings(knowledge_embedding_dimensions=64, knowledge_embedding_batch_size=4)
+    )
+
+    vectors = provider.embed(["a", "bb", "ccc"])
+
+    assert [vector[0] for vector in vectors] == [1.0, 2.0, 3.0]
+    assert all(len(vector) == 64 for vector in vectors)
 
 
 def test_policy_abstains_on_an_unverified_current_scheme_question() -> None:
@@ -65,6 +164,17 @@ def test_policy_abstains_on_an_unverified_current_scheme_question() -> None:
     assert decision.abstention_message and "could not verify" in decision.abstention_message.casefold()
 
 
+def test_policy_does_not_present_new_bank_website_information_as_general_guidance() -> None:
+    decision = decide_response(
+        message="मुझे पीएनबी वेबसाइट से नई जानकारी बताओ",
+        language="hi-IN",
+        retrieval=RetrievalResult(),
+    )
+
+    assert decision.requires_abstention is True
+    assert decision.evidence_status.value == "INSUFFICIENT_EVIDENCE"
+
+
 def test_registry_sync_preserves_failed_source_operational_state() -> None:
     async def scenario() -> None:
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -77,10 +187,12 @@ def test_registry_sync_preserves_failed_source_operational_state() -> None:
             source = await session.get(KnowledgeSource, "pmfby")
             assert source is not None
             source.validation_status = SourceValidationStatus.CHECK_FAILED.value
+            source.last_successful_check_at = datetime.now(UTC)
             await session.commit()
             await repository.sync_source_registry()
             await session.refresh(source)
             assert source.validation_status == SourceValidationStatus.CHECK_FAILED.value
+            assert "pmfby" in {item.key for item in await repository.due_sources()}
         await engine.dispose()
 
     asyncio.run(scenario())
