@@ -24,6 +24,8 @@ async def _run(
     reconcile: bool = False,
     reindex_source: str | None = None,
     backfill_schemes: bool = False,
+    ingest_all: bool = False,
+    force_check: bool = False,
 ) -> int:
     settings = get_settings()
     session_factory = get_session_factory()
@@ -58,6 +60,58 @@ async def _run(
             # invent records, so it is safe to run after a deployment.
             count = await SchemeRepository(session).sync_current_documents()
             logging.info("scheme_catalog_backfill_complete changed=%s", count)
+        elif ingest_all:
+            # Force check all registered sources regardless of check_interval
+            await service.repository.sync_source_registry()
+            recovered = await service.repository.recover_interrupted_checks()
+            if recovered:
+                logging.warning("knowledge_interrupted_checks_recovered count=%s", recovered)
+            
+            total_sources = len(SOURCES_BY_KEY)
+            successful = 0
+            failed = 0
+            unchanged = 0
+            changed = 0
+            
+            logging.info("knowledge_bulk_ingestion_started total_sources=%s force=%s", total_sources, force_check)
+            
+            for idx, (key, source) in enumerate(sorted(SOURCES_BY_KEY.items()), 1):
+                if not source.enabled:
+                    logging.info("knowledge_source_skipped source=%s reason=disabled progress=%s/%s", key, idx, total_sources)
+                    continue
+                    
+                logging.info("knowledge_source_checking source=%s progress=%s/%s", key, idx, total_sources)
+                try:
+                    result = await service.check_source(source)
+                    if result.value == "FAILED":
+                        failed += 1
+                        logging.warning("knowledge_source_failed source=%s result=%s", key, result.value)
+                    elif result.value == "UNCHANGED":
+                        unchanged += 1
+                        logging.info("knowledge_source_unchanged source=%s", key)
+                    elif result.value in {"CHANGED", "PARTIAL_FAILURE"}:
+                        changed += 1
+                        successful += 1
+                        logging.info("knowledge_source_completed source=%s result=%s", key, result.value)
+                    else:
+                        successful += 1
+                        logging.info("knowledge_source_completed source=%s result=%s", key, result.value)
+                except Exception as error:
+                    failed += 1
+                    logging.error("knowledge_source_exception source=%s error=%s", key, str(error), exc_info=True)
+            
+            logging.info(
+                "knowledge_bulk_ingestion_complete total=%s successful=%s failed=%s unchanged=%s changed=%s",
+                total_sources, successful, failed, unchanged, changed
+            )
+            
+            # After bulk ingestion, backfill schemes from all newly ingested documents
+            try:
+                scheme_count = await SchemeRepository(session).sync_current_documents()
+                logging.info("scheme_catalog_backfill_complete changed=%s", scheme_count)
+            except Exception as error:
+                logging.error("scheme_catalog_backfill_failed error=%s", str(error), exc_info=True)
+                
         elif source_key:
             await service.repository.sync_source_registry()
             recovered = await service.repository.recover_interrupted_checks()
@@ -87,6 +141,8 @@ def main() -> None:
     group.add_argument("--reconcile", action="store_true", help="Repair missing/stale Qdrant CURRENT points from the audit store.")
     group.add_argument("--reindex-source", choices=sorted(SOURCES_BY_KEY), help="Force one reviewed source's CURRENT chunks back into Qdrant.")
     group.add_argument("--backfill-schemes", action="store_true", help="Build scheme records from already-ingested approved documents.")
+    group.add_argument("--ingest-all", action="store_true", help="Force ingestion of ALL registered sources (ignores check intervals).")
+    parser.add_argument("--force", action="store_true", help="Force check even if interval hasn't elapsed (use with --source or --ingest-all).")
     arguments = parser.parse_args()
     raise SystemExit(
         asyncio.run(
@@ -95,6 +151,8 @@ def main() -> None:
                 reconcile=arguments.reconcile,
                 reindex_source=arguments.reindex_source,
                 backfill_schemes=arguments.backfill_schemes,
+                ingest_all=arguments.ingest_all,
+                force_check=arguments.force,
             )
         )
     )

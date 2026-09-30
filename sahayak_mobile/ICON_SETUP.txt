@@ -1,0 +1,66 @@
+APP ICON SETUP INSTRUCTIONS
+===========================
+
+You provided a red circular icon with a chat bubble (Sahayak AI logo).
+
+To replace the Flutter default icon with your logo:
+
+OPTION 1: Use Online Tool (Recommended - Easiest)
+--------------------------------------------------
+1. Go to: https://icon.kitchen/
+   OR: https://appicon.co/
+
+2. Upload your logo image (the red circular chat bubble icon)
+
+3. Platform: Select "Android"
+
+4. Download the generated icons
+
+5. Extract and replace files in:
+   android/app/src/main/res/
+   ├── mipmap-hdpi/ic_launcher.png (72x72)
+   ├── mipmap-mdpi/ic_launcher.png (48x48)
+   ├── mipmap-xhdpi/ic_launcher.png (96x96)
+   ├── mipmap-xxhdpi/ic_launcher.png (144x144)
+   └── mipmap-xxxhdpi/ic_launcher.png (192x192)
+
+
+OPTION 2: Use flutter_launcher_icons Package
+---------------------------------------------
+1. Add to pubspec.yaml:
+   dev_dependencies:
+     flutter_launcher_icons: ^0.13.1
+
+2. Create flutter_launcher_icons.yaml:
+   flutter_icons:
+     android: true
+     image_path: "assets/logo/app_icon.png"
+
+3. Place your logo as: assets/logo/app_icon.png
+
+4. Run: flutter pub get
+        flutter pub run flutter_launcher_icons
+
+
+OPTION 3: Manual Creation
+--------------------------
+Use image editing software to create these sizes:
+- 48x48   → mipmap-mdpi/ic_launcher.png
+- 72x72   → mipmap-hdpi/ic_launcher.png
+- 96x96   → mipmap-xhdpi/ic_launcher.png
+- 144x144 → mipmap-xxhdpi/ic_launcher.png
+- 192x192 → mipmap-xxxhdpi/ic_launcher.png
+
+
+YOUR LOGO DESCRIPTION:
+- Red/maroon circular background (#A73439 or similar)
+- White chat bubble icon in center
+- Clean, modern design
+- Perfect for Sahayak AI branding
+
+After replacing icons:
+1. flutter clean
+2. flutter build apk
+3. Install on device to see new icon
+
+NOTE: Icons are currently in default directories. Replace them with your generated icons.

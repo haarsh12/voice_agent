@@ -118,6 +118,16 @@ def _candidate_names(
     dedicated_names = {
         "pmfby": "Pradhan Mantri Fasal Bima Yojana (PMFBY)",
         "cpgrams": "Centralized Public Grievance Redress and Monitoring System (CPGRAMS)",
+        "pm_kisan": "Pradhan Mantri Kisan Samman Nidhi (PM-KISAN)",
+        "kisan_credit_card": "Kisan Credit Card (KCC)",
+        "agriculture_infrastructure_fund": "Agriculture Infrastructure Fund (AIF)",
+        "pmksy": "Pradhan Mantri Krishi Sinchayee Yojana (PMKSY)",
+        "soil_health_card": "Soil Health Card Scheme",
+        "paramparagat_krishi_vikas": "Paramparagat Krishi Vikas Yojana (PKVY)",
+        "sub_mission_agricultural_mechanization": "Sub-Mission on Agricultural Mechanization (SMAM)",
+        "horticulture_mission": "Mission for Integrated Development of Horticulture (MIDH)",
+        "e_nam": "National Agriculture Market (e-NAM)",
+        "minimum_support_price": "Minimum Support Price (MSP)",
     }
     if source.key in dedicated_names:
         # A dedicated programme portal can have titles such as FAQ, Help, or
@@ -208,15 +218,43 @@ def _source_fields(chunks: list[KnowledgeChunk]) -> dict[str, str]:
 
 def _category(source: KnowledgeSource, coverage: list[str]) -> str:
     values = " ".join([source.category, *coverage]).casefold()
-    if "insurance" in values:
+    if "insurance" in values or "fasal bima" in values:
         return "Crop insurance"
-    if "grievance" in values or "appeal" in values:
+    if "grievance" in values or "appeal" in values or "cpgrams" in values:
         return "Government services"
-    if "pacs" in values or "cooperative" in values:
+    if "pacs" in values or "cooperative" in values or "ncdc" in values or "sahakar" in values:
         return "Cooperatives"
-    if "credit" in values or "financial" in values or "bank" in values:
+    if "credit" in values or "financial" in values or "bank" in values or "kcc" in values or "loan" in values:
         return "Financial inclusion"
-    if "agri" in values or "farmer" in values or "crop" in values:
+    if "fisheries" in values or "pmmsy" in values or "aquaculture" in values or "fidf" in values:
+        return "Fisheries"
+    if "dairy" in values or "livestock" in values or "gokul" in values or "animal husbandry" in values or "poultry" in values:
+        return "Livestock & Dairy"
+    if "food processing" in values or "pmfme" in values or "sampada" in values or "cold chain" in values:
+        return "Food processing"
+    if "tribal" in values or "van dhan" in values or "mfp" in values or "trifed" in values:
+        return "Tribal welfare"
+    if "fpo" in values or "farmer producer" in values or "producer organisation" in values:
+        return "Farmer Producer Organisations"
+    if "irrigation" in values or "pmksy" in values or "sinchayee" in values or "watershed" in values:
+        return "Irrigation"
+    if "soil health" in values or "soil testing" in values or "nutrient" in values:
+        return "Soil health"
+    if "organic" in values or "pkvy" in values or "paramparagat" in values:
+        return "Organic farming"
+    if "mechanization" in values or "smam" in values or "machinery" in values or "chc" in values:
+        return "Agricultural mechanization"
+    if "horticulture" in values or "midh" in values:
+        return "Horticulture"
+    if "marketing" in values or "e-nam" in values or "mandi" in values or "agmarknet" in values:
+        return "Agricultural marketing"
+    if "msp" in values or "procurement" in values or "minimum support price" in values:
+        return "Procurement"
+    if "pm-kisan" in values or "pm kisan" in values or "income support" in values:
+        return "Income support"
+    if "infrastructure" in values or "aif" in values or "agri infra" in values:
+        return "Infrastructure financing"
+    if "agri" in values or "farmer" in values or "crop" in values or "krishi" in values:
         return "Agriculture"
     if source.geographic_scope == "STATE":
         return "State-specific"
@@ -225,28 +263,54 @@ def _category(source: KnowledgeSource, coverage: list[str]) -> str:
 
 def _scheme_type(source: KnowledgeSource, coverage: list[str], name: str) -> str:
     values = " ".join([source.category, *coverage, name]).casefold()
-    if "insurance" in values:
+    if "insurance" in values or "bima" in values:
         return "INSURANCE"
-    if "grievance" in values or "appeal" in values:
+    if "grievance" in values or "appeal" in values or "complaint" in values:
         return "GRIEVANCE_SERVICE"
-    if "credit" in values or "fund" in values:
+    if "credit" in values or "loan" in values or "kcc" in values or "financing" in values:
         return "CREDIT_FACILITY"
-    if "initiative" in values or "mission" in values:
+    if "fund" in values or "aif" in values or "fidf" in values:
+        return "FINANCING_FACILITY"
+    if "mission" in values or "abhiyan" in values:
+        return "MISSION"
+    if "yojana" in values or "scheme" in values or "programme" in values:
+        return "PROGRAMME"
+    if "initiative" in values or "vikas" in values or "development" in values:
         return "INITIATIVE"
-    if "service" in values or "registration" in values:
+    if "service" in values or "registration" in values or "portal" in values or "e-nam" in values:
         return "SERVICE"
+    if "subsidy" in values or "assistance" in values or "support" in values:
+        return "SUBSIDY_SCHEME"
+    if "msp" in values or "procurement" in values:
+        return "PROCUREMENT_SCHEME"
     return "PROGRAMME"
 
 
 def _beneficiaries(source: KnowledgeSource, coverage: list[str], name: str) -> tuple[str, ...]:
     values = " ".join([source.category, *coverage, name]).casefold()
     result: list[str] = []
-    if any(token in values for token in ("agri", "farmer", "crop", "pmfby")):
+    if any(token in values for token in ("agri", "farmer", "crop", "pmfby", "pm-kisan", "kisan", "shetkari", "krishi")):
         result.append("farmer")
     if "pacs" in values:
         result.append("pacs_member")
-    if "cooperative" in values:
+    if any(token in values for token in ("cooperative", "ncdc", "sahakar", "sahakari")):
         result.extend(("cooperative_member", "cooperative_official"))
+    if any(token in values for token in ("fisheries", "pmmsy", "fisherman", "aquaculture", "matsya")):
+        result.append("fisheries_stakeholder")
+    if any(token in values for token in ("dairy", "milk", "livestock", "gokul", "animal husbandry", "doodh", "pashupalan")):
+        result.append("dairy_livestock_farmer")
+    if any(token in values for token in ("food processing", "pmfme", "food entrepreneur", "micro enterprise")):
+        result.append("food_entrepreneur")
+    if any(token in values for token in ("tribal", "van dhan", "adivasi", "mfp", "forest produce")):
+        result.append("tribal_community")
+    if any(token in values for token in ("fpo", "farmer producer", "producer organisation")):
+        result.append("fpo_member")
+    if any(token in values for token in ("women", "mahila", "self help", "shg")):
+        result.append("women")
+    if any(token in values for token in ("youth", "yuva", "young", "student")):
+        result.append("youth")
+    if any(token in values for token in ("small", "marginal", "landless", "tenant")):
+        result.append("small_marginal_farmer")
     if not result and ("rural" in values or source.geographic_scope in {"NATIONAL", "STATE"}):
         result.append("rural_stakeholder")
     return tuple(dict.fromkeys(result))
@@ -258,7 +322,11 @@ def _applicable_states(source: KnowledgeSource) -> tuple[str, ...]:
     # The source registry explicitly approves Maharashtra as the first State
     # RCS coverage.  Additional state sources must be added to that registry
     # before this mapping can expand.
-    return ("Maharashtra",) if source.key == "state_rcs" else ()
+    state_mapping = {
+        "state_rcs": ("Maharashtra",),
+        "maharashtra_agriculture": ("Maharashtra",),
+    }
+    return state_mapping.get(source.key, ())
 
 
 def _excerpt(value: str, limit: int = 900) -> str:

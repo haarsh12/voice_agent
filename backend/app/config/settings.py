@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: SecretStr | None = None
     qdrant_collection: str = "sahayak_verified_knowledge"
+    
+    # Google Cloud Vertex AI for embeddings
+    google_vertex_project_id: str = ""
+    google_vertex_location: str = "us-central1"
+    
     knowledge_embedding_model: str = "text-embedding-004"
     knowledge_embedding_dimensions: int = Field(default=768, ge=64, le=4096)
     knowledge_embedding_batch_size: int = Field(default=128, ge=1, le=128)
