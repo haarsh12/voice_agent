@@ -169,7 +169,8 @@ def test_policy_abstains_on_an_unverified_current_scheme_question() -> None:
 
     assert decision.requires_abstention is True
     assert decision.evidence_status.value == "INSUFFICIENT_EVIDENCE"
-    assert decision.abstention_message and "could not verify" in decision.abstention_message.casefold()
+    assert decision.abstention_message and "not yet available" in decision.abstention_message.casefold()
+    assert "portal" not in decision.abstention_message.casefold()
 
 
 def test_policy_does_not_present_new_bank_website_information_as_general_guidance() -> None:

@@ -78,7 +78,9 @@ class VoiceKnowledgeService:
             instructions = (
                 "No verified source evidence was retrieved for this question. Keep any answer "
                 "general and educational; do not present it as a current official, legal, "
-                "financial, scheme, eligibility, deadline, claim, contact, or procedural fact."
+                "financial, scheme, eligibility, deadline, claim, contact, or procedural fact. "
+                "If a user-provided document is in the context, explain only what that document "
+                "says and do not treat it as confirmation of a current rule."
             )
 
         return VoiceKnowledgeTurn(

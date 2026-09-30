@@ -74,7 +74,16 @@ class KnowledgeRetriever:
                         chunk.vector_point_id: _lexical_score(query, chunk.content, document.title, chunk.heading)
                         for chunk, _version, document, _source in fallback_rows
                     }
-                    evidence = _validated_evidence(fallback_rows, lexical_scores, user_context)
+                    evidence = [
+                        item
+                        for item in _validated_evidence(fallback_rows, lexical_scores, user_context)
+                        # A single vague word (for example "current" or
+                        # "process") is not enough to ground a response.
+                        # Require a meaningful proportion of the question's
+                        # terms before an on-platform lexical fallback may
+                        # answer an authoritative question.
+                        if item.score >= 0.4
+                    ]
                 except Exception:
                     # Keep the retrieval failure unobservable to the browser
                     # and fall through to the normal knowledge-base message.
@@ -138,8 +147,16 @@ def _validated_evidence(
 def _search_terms(query: str) -> list[str]:
     """Extract bounded Unicode terms for parameterised relational matching."""
 
+    ignored = {
+        "a", "an", "and", "are", "about", "can", "could", "do", "does", "for",
+        "give", "help", "how", "i", "in", "information", "is", "it", "me", "my",
+        "of", "on", "please", "tell", "that", "the", "this", "to", "what", "when",
+        "where", "which", "who", "with", "you", "your", "current", "latest", "new",
+    }
     terms: list[str] = []
     for term in re.findall(r"[^\W_]{2,}", query.casefold(), flags=re.UNICODE):
+        if term in ignored:
+            continue
         if term not in terms:
             terms.append(term)
         if len(terms) == 12:

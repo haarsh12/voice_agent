@@ -457,7 +457,7 @@ async def create_text_chat_reply(
     )
 
     if decision.requires_abstention:
-        reply = decision.abstention_message or "I could not verify that information from official sources."
+        reply = decision.abstention_message or "That detail is not yet available in Sahayak AI's knowledge base."
     else:
         try:
             reply = await asyncio.wait_for(

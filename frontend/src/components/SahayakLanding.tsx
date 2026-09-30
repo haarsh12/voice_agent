@@ -26,7 +26,7 @@ export function SahayakLanding({ onOpenAuth, onTalk, onViewServices }: SahayakLa
             <button className="primary-action" onClick={onTalk} type="button"><Mic size={18} /> Talk to Sahayak</button>
             <button className="secondary-action" onClick={onOpenAuth} type="button">Sign in</button>
           </div>
-          <p className="hero-disclaimer">Educational guidance only. Always verify important legal, scheme and insurance details with official sources.</p>
+          <p className="hero-disclaimer">Clear, practical guidance stays in Sahayak AI. Share your category and situation for a more useful answer.</p>
         </div>
         <aside className="voice-preview" aria-label="Voice assistant preview">
           <div className="voice-preview__orbit voice-preview__orbit--outer" />

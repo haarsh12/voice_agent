@@ -245,7 +245,10 @@ def test_voice_prompt_uses_sahayak_identity_and_safe_source_language() -> None:
 
     assert "Sahayak AI, made by Team Sahayak" in prompt
     assert "PACS members, cooperative" in prompt
-    assert "curated official-source" in prompt
+    assert "curated knowledge" in prompt
     assert "Do not speak or name source websites" in prompt
+    assert "You are a woman" in prompt
+    assert "कर सकती हूँ" in prompt
+    assert "Never tell the user to visit a website" in prompt
     assert "https://" not in prompt
     assert "Do not disclose models" in prompt

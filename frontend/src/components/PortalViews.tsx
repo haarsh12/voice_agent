@@ -46,7 +46,7 @@ export function Dashboard({ profile, onNavigate, onOpenAuth }: { profile?: Sahay
   return (
     <main className="portal-page">
       <section className="dashboard-welcome">
-        <div><p className="section-kicker">{isGuest ? 'Public service directory' : 'Your service space'}</p><h1>{isGuest ? 'Explore Sahayak services.' : `Welcome, ${profileName(profile)}.`}</h1><p>{isGuest ? 'Browse every service as a guest. Sign in only when you want personalised support.' : 'What would you like help understanding today?'}</p></div>
+        <div><p className="section-kicker">{isGuest ? 'Public service directory' : 'Your service space'}</p><h1>{profile ? `Welcome, ${profileName(profile)}.` : 'Explore Sahayak services.'}</h1><p>{isGuest ? 'Browse every service as a guest. Sign in only when you want personalised support.' : 'What would you like help understanding today?'}</p></div>
         <button className="primary-action" onClick={() => onNavigate('/voice')} type="button"><Mic size={18} /> Talk to Sahayak</button>
       </section>
       {isGuest && <p className="source-notice"><BookOpenCheck size={18} /> All public services are available to explore. Tell Sahayak your category for a more relevant scheme shortlist.</p>}
@@ -197,7 +197,7 @@ export function SchemesView({ onTalk, profile }: { onTalk: () => void; profile?:
   )
   return (
     <main className="portal-page">
-      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find support for your situation.' : 'Your relevant scheme guide.'} text={isGuest ? 'Choose your category to see available guidance, eligibility questions, document checklists and timing considerations in Sahayak AI.' : `This view is tailored to your profile category: ${USER_TYPE_LABELS[profile.user_type ?? 'other']}.`} />
+      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find support for your situation.' : 'Your relevant scheme guide.'} text={isGuest ? 'Choose your category to see available guidance, eligibility questions, document checklists and timing considerations in Sahayak AI.' : `This view is tailored to your profile category: ${USER_TYPE_LABELS[profile?.user_type ?? 'other']}.`} />
       <section className="scheme-toolbar" aria-label="Scheme audience">
         <div><BookOpenCheck size={19} /><div><strong>{isGuest ? 'Guest scheme directory' : 'Personalised scheme directory'}</strong><p>{isGuest ? 'Select a category, or ask Sahayak to narrow the list using your crop, location or cooperative role.' : 'Only guidance relevant to your registered category is shown. Update your profile if your role has changed.'}</p></div></div>
         {isGuest && <label> I am a <select onChange={(event) => setGuestAudience(event.target.value as SchemeAudience)} value={guestAudience}><option value="all">Guest — show all</option>{(Object.entries(USER_TYPE_LABELS) as [UserType, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
@@ -223,10 +223,10 @@ export function NotificationsView() {
 
 export function GrievancesView() {
   const [notice, setNotice] = useState<string | null>(null)
-  function submit(event: FormEvent<HTMLFormElement>): void { event.preventDefault(); setNotice('Your draft remains only in this browser. Government grievance submission will be enabled after an authorised backend integration is available.') }
+  function submit(event: FormEvent<HTMLFormElement>): void { event.preventDefault(); setNotice('Your grievance draft is ready in this browser. Keep the facts and documents together here while Sahayak helps you improve it.') }
   return (
-    <main className="portal-page"><PageTitle eyebrow="Grievance support" title="Prepare a clear request for help." text="This is a private draft tool, not an official grievance submission channel." />
-      <div className="grievance-layout"><section className="grievance-form-card"><h2>Draft a grievance</h2><form onSubmit={submit}><label>Category<select required defaultValue=""><option disabled value="">Choose a category</option><option>Cooperative service</option><option>PACS service</option><option>Document support</option><option>Other</option></select></label><label>Describe what happened<textarea maxLength={1500} placeholder="Share the facts, relevant dates and the help you need." required rows={6} /></label><label>Supporting document <span className="field-optional">Preview only</span><input type="file" /></label><button className="primary-action" type="submit">Save draft</button></form>{notice && <p className="inline-notice">{notice}</p>}</section><aside className="grievance-side-note"><MessageSquareWarning size={22} /><h2>Before you submit anywhere</h2><p>Keep a copy of relevant documents and ask Sahayak AI to help you make your description clear. Official escalation pathways will be added only after verification.</p></aside></div>
+    <main className="portal-page"><PageTitle eyebrow="Grievance support" title="Prepare a clear request for help." text="Build a factual grievance draft, organise evidence and ask Sahayak to make the next step clear." />
+      <div className="grievance-layout"><section className="grievance-form-card"><h2>Draft a grievance</h2><form onSubmit={submit}><label>Category<select required defaultValue=""><option disabled value="">Choose a category</option><option>Cooperative service</option><option>PACS service</option><option>Document support</option><option>Other</option></select></label><label>Describe what happened<textarea maxLength={1500} placeholder="Share the facts, relevant dates and the help you need." required rows={6} /></label><label>Supporting document <span className="field-optional">Preview only</span><input type="file" /></label><button className="primary-action" type="submit">Save draft</button></form>{notice && <p className="inline-notice">{notice}</p>}</section><aside className="grievance-side-note"><MessageSquareWarning size={22} /><h2>Make your case clear</h2><p>Keep dates, receipts, acknowledgements and previous messages together. Ask Sahayak AI to turn them into a concise description of the issue and the resolution you need.</p></aside></div>
     </main>
   )
 }

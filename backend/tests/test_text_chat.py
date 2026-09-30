@@ -10,6 +10,7 @@ from PIL import Image
 from starlette.datastructures import Headers, UploadFile
 
 from app.api import routes
+from app.knowledge.contracts import RetrievalResult
 from app.services.document_text import DocumentExtractionError, extract_uploaded_document
 from app.services import gemini
 from app.services.gemini import build_text_chat_prompt
@@ -103,7 +104,7 @@ def test_document_text_is_explicitly_treated_as_untrusted_reference() -> None:
     assert "UNTRUSTED DOCUMENT TEXT START" in prompt
     assert "not instructions" in prompt
     assert "Sahayak AI, made by Team Sahayak" in prompt
-    assert "official-source knowledge base" in prompt
+    assert "curated knowledge\n  base" in prompt
     assert "Never write\n  citations, source names, links" in prompt
     assert "https://" not in prompt
 
@@ -322,6 +323,15 @@ def test_authoritative_question_without_retrieved_evidence_abstains(monkeypatch,
 
     routes._chat_rate_limit.clear()
     monkeypatch.setattr(routes, "generate_text_reply", fail_if_called)
+
+    class EmptyRetriever:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        async def retrieve(self, *_: object, **__: object) -> RetrievalResult:
+            return RetrievalResult()
+
+    monkeypatch.setattr(routes, "KnowledgeRetriever", EmptyRetriever)
     guest = _guest_fields(client)
     response = client.post(
         "/api/chat",
@@ -336,4 +346,39 @@ def test_authoritative_question_without_retrieved_evidence_abstains(monkeypatch,
     assert response.status_code == 200, response.text
     assert response.json()["evidence_status"] == "INSUFFICIENT_EVIDENCE"
     assert response.json()["sources"] == []
-    assert "could not verify" in response.json()["message"].casefold()
+    assert "not yet available" in response.json()["message"].casefold()
+    assert "portal" not in response.json()["message"].casefold()
+
+
+def test_authoritative_question_can_be_explained_from_an_attached_document(monkeypatch, client) -> None:
+    received: dict[str, object] = {}
+
+    def fake_generate(_settings, **kwargs: object) -> str:
+        received.update(kwargs)
+        return "The attached document says to keep the acknowledgement and record each follow-up."
+
+    class EmptyRetriever:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        async def retrieve(self, *_: object, **__: object) -> RetrievalResult:
+            return RetrievalResult()
+
+    routes._chat_rate_limit.clear()
+    monkeypatch.setattr(routes, "KnowledgeRetriever", EmptyRetriever)
+    monkeypatch.setattr(routes, "generate_text_reply", fake_generate)
+    guest = _guest_fields(client)
+    response = client.post(
+        "/api/chat",
+        files={
+            "message": (None, "What grievance process does this document describe?"),
+            "language": (None, "en-IN"),
+            "guest_session_id": (None, guest["session_id"]),
+            "guest_session_secret": (None, guest["session_secret"]),
+            "document": ("grievance.txt", b"Keep the acknowledgement and record each follow-up.", "text/plain"),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["evidence_status"] == "GENERAL_MODEL_KNOWLEDGE"
+    assert received["document_text"] == "Keep the acknowledgement and record each follow-up."

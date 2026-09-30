@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { Camera, ExternalLink, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
+import { Camera, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { CameraCapture } from './CameraCapture'
 import type { EvidenceStatus, OfficialSourceReference } from '../types/api'
 
@@ -23,21 +23,11 @@ type TranscriptPanelProps = {
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 
 const evidenceStatusLabel: Record<EvidenceStatus, string> = {
-  VERIFIED_SOURCE: 'Verified knowledge base · 1 official source used',
-  MULTIPLE_VERIFIED_SOURCES: 'Verified knowledge base · official sources used',
-  PARTIALLY_VERIFIED: 'Partially verified',
-  GENERAL_MODEL_KNOWLEDGE: 'General guidance · no official source used',
-  INSUFFICIENT_EVIDENCE: 'Official source could not be verified',
-}
-
-function sourceWebsiteAddress(url: string): string {
-  try {
-    const hostname = new URL(url).hostname
-    return hostname
-  } catch {
-    const address = url.replace(/^https?:\/\//, '').replace(/\/$/, '')
-    return address
-  }
+  VERIFIED_SOURCE: 'Sahayak knowledge-base guidance',
+  MULTIPLE_VERIFIED_SOURCES: 'Sahayak knowledge-base guidance',
+  PARTIALLY_VERIFIED: 'Sahayak knowledge-base guidance',
+  GENERAL_MODEL_KNOWLEDGE: 'General guidance',
+  INSUFFICIENT_EVIDENCE: 'General guidance',
 }
 
 export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }: TranscriptPanelProps) {
@@ -153,22 +143,13 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                   </span>
                 )}
                 {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
-                  <footer className="transcript-entry__sources" aria-label="Verified official sources">
-                    <span>Official source{entry.sources.length > 1 ? 's' : ''} used for this answer</span>
+                  <footer className="transcript-entry__sources" aria-label="Sahayak knowledge-base records">
+                    <span>Knowledge records used for this answer</span>
                     {entry.sources.map((source) => (
-                      <a
-                        aria-label={`Open ${source.name} at ${sourceWebsiteAddress(source.url)}`}
-                        href={source.url}
-                        key={source.url}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        <span className="transcript-entry__source-body">
-                          <b>{source.name}</b>
-                          <small>{source.title}{source.document_version ? ` · Version ${source.document_version}` : ''}</small>
-                        </span>
-                        <ExternalLink aria-hidden="true" size={14} />
-                      </a>
+                      <div className="transcript-entry__source-record" key={source.url}>
+                        <b>{source.name}</b>
+                        <small>{source.title}{source.document_version ? ` · Version ${source.document_version}` : ''}</small>
+                      </div>
                     ))}
                   </footer>
                 )}
