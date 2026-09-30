@@ -20,9 +20,11 @@ import {
 
 import type { SahayakAuth } from '../hooks/useAuth'
 import { getSchemeDetail, getSchemeFilters, getSchemes } from '../lib/api'
+import { cache } from '../lib/cache'
 import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
 import type { SahayakProfile, SchemeDetail, SchemeFilters, SchemeSummary, UserType } from '../types/api'
 import type { AppRoute } from '../types/navigation'
+import { SchemeCardSkeleton } from './SkeletonLoader'
 
 type Navigate = (route: AppRoute) => void
 type Service = { icon: typeof Landmark; label: string; route: AppRoute; text: string }

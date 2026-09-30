@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Database, ExternalLink, FileText, LoaderCircle, RefreshCw, Server } from 'lucide-react'
 
 import { getKnowledgeBaseStatus } from '../lib/api'
+import { cache } from '../lib/cache'
 import type { KnowledgeBaseSource, KnowledgeBaseStatus } from '../types/api'
+import { KnowledgeSourceCardSkeleton, MetricCardSkeleton } from './SkeletonLoader'
 
 function formatTime(value: string | null): string {
   if (!value) return 'Not recorded yet'
@@ -44,13 +46,15 @@ export function KnowledgeBasePanel() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showAllSources, setShowAllSources] = useState(false)
+  const [showAllDocuments, setShowAllDocuments] = useState(false)
 
   const loadKnowledgeBase = useCallback(async (refresh = false): Promise<void> => {
     if (refresh) setIsRefreshing(true)
     else setIsLoading(true)
     setError(null)
     try {
-      setKnowledgeBase(await getKnowledgeBaseStatus())
+      setKnowledgeBase(await getKnowledgeBaseStatus(!refresh)) // Use cache unless refresh
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'Knowledge Base could not be loaded.')
     } finally {
@@ -60,9 +64,34 @@ export function KnowledgeBasePanel() {
   }, [])
 
   useEffect(() => { void loadKnowledgeBase() }, [loadKnowledgeBase])
+  
+  function clearCacheAndRefresh(): void {
+    cache.clear()
+    void loadKnowledgeBase(true)
+  }
 
   if (isLoading) {
-    return <main className="page-loader"><LoaderCircle className="spin" size={20} /> Loading Knowledge Base…</main>
+    return (
+      <main className="knowledge-base-page">
+        <header className="knowledge-base-page__header">
+          <div>
+            <p className="section-kicker">Public transparency</p>
+            <h1>Knowledge Base</h1>
+          </div>
+        </header>
+        <section className="knowledge-base-metric-grid" aria-label="Knowledge Base summary">
+          {Array.from({ length: 4 }).map((_, i) => <MetricCardSkeleton key={i} />)}
+        </section>
+        <section className="knowledge-base-section">
+          <div className="knowledge-base-section__header">
+            <div><p className="section-kicker">Approved source registry</p><h2>Source health and update history</h2></div>
+          </div>
+          <div className="knowledge-base-source-grid">
+            {Array.from({ length: 3 }).map((_, i) => <KnowledgeSourceCardSkeleton key={i} />)}
+          </div>
+        </section>
+      </main>
+    )
   }
 
   if (!knowledgeBase) {
@@ -77,6 +106,9 @@ export function KnowledgeBasePanel() {
     )
   }
 
+  const visibleSources = showAllSources ? knowledgeBase.sources : knowledgeBase.sources.slice(0, 6)
+  const visibleDocuments = showAllDocuments ? knowledgeBase.recent_documents : knowledgeBase.recent_documents.slice(0, 10)
+
   return (
     <main className="knowledge-base-page">
       <header className="knowledge-base-page__header">
@@ -85,9 +117,12 @@ export function KnowledgeBasePanel() {
           <h1>Knowledge Base</h1>
           <p>Reviewed official sources, current document records, and explicit coverage status. A successful check is not treated as complete knowledge.</p>
         </div>
-        <button className="secondary-action" disabled={isRefreshing} onClick={() => void loadKnowledgeBase(true)} type="button">
-          <RefreshCw className={isRefreshing ? 'spin' : ''} size={16} /> Refresh
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="link-action" onClick={clearCacheAndRefresh} type="button">Clear cache</button>
+          <button className="secondary-action" disabled={isRefreshing} onClick={() => void loadKnowledgeBase(true)} type="button">
+            <RefreshCw className={isRefreshing ? 'spin' : ''} size={16} /> Refresh
+          </button>
+        </div>
       </header>
 
       {error && <p className="form-feedback form-feedback--error" role="alert">{error}</p>}
@@ -102,10 +137,10 @@ export function KnowledgeBasePanel() {
       <section className="knowledge-base-section" aria-labelledby="source-health-title">
         <div className="knowledge-base-section__header">
           <div><p className="section-kicker">Approved source registry</p><h2 id="source-health-title">Source health and update history</h2></div>
-          <span>Updated {formatTime(knowledgeBase.generated_at)}</span>
+          <span>Updated {formatTime(knowledgeBase.generated_at)} · {knowledgeBase.sources.length} sources</span>
         </div>
         <div className="knowledge-base-source-grid">
-          {knowledgeBase.sources.map((source) => (
+          {visibleSources.map((source) => (
             <article className="knowledge-base-source-card" key={source.key}>
               <div className="knowledge-base-source-card__heading"><div><h3>{source.name}</h3><p>{readableCategory(source.category)} · {source.geographic_scope.toLowerCase()}</p></div><div className="knowledge-base-source-card__status-stack"><span className={`knowledge-status knowledge-status--${source.validation_status.toLowerCase()}`}>{sourceStatus(source)}</span><span className={`knowledge-status knowledge-status--coverage-${source.coverage_state.toLowerCase()}`}>{coverageStatus(source)}</span></div></div>
               <dl><div><dt>Current docs</dt><dd>{source.current_document_count}</dd></div><div><dt>Chunks</dt><dd>{source.chunk_count}</dd></div><div><dt>Ingestion</dt><dd>{source.ingestion_state === 'INGESTED' ? 'Ready' : 'Pending'}</dd></div><div><dt>Failed items</dt><dd>{source.failed_resource_count}</dd></div></dl>
@@ -119,14 +154,21 @@ export function KnowledgeBasePanel() {
             </article>
           ))}
         </div>
+        {knowledgeBase.sources.length > 6 && !showAllSources && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1.5rem' }}>
+            <button className="secondary-action" onClick={() => setShowAllSources(true)} type="button">
+              Show all {knowledgeBase.sources.length} sources
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="knowledge-base-section" aria-labelledby="recent-documents-title">
-        <div className="knowledge-base-section__header"><div><p className="section-kicker">Extracted official documents</p><h2 id="recent-documents-title">Recently checked document versions</h2></div><span>{knowledgeBase.recent_documents.length} shown</span></div>
+        <div className="knowledge-base-section__header"><div><p className="section-kicker">Extracted official documents</p><h2 id="recent-documents-title">Recently checked document versions</h2></div><span>{visibleDocuments.length} of {knowledgeBase.recent_documents.length} shown</span></div>
         <div className="knowledge-base-document-table-wrap">
           <table className="knowledge-base-document-table">
             <thead><tr><th>Source</th><th>Document</th><th>Status</th><th>Extraction</th><th>Last checked</th></tr></thead>
-            <tbody>{knowledgeBase.recent_documents.map((document) => (
+            <tbody>{visibleDocuments.map((document) => (
               <tr key={`${document.url}-${document.version_number}`}>
                 <td>{document.source_name}</td>
                 <td><a href={document.url} rel="noreferrer" target="_blank">{document.title}<ExternalLink size={13} /></a><small>Version {document.version_number}</small></td>
@@ -137,6 +179,13 @@ export function KnowledgeBasePanel() {
             ))}</tbody>
           </table>
         </div>
+        {knowledgeBase.recent_documents.length > 10 && !showAllDocuments && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
+            <button className="secondary-action" onClick={() => setShowAllDocuments(true)} type="button">
+              Show all {knowledgeBase.recent_documents.length} documents
+            </button>
+          </div>
+        )}
       </section>
       <p className="knowledge-base-page__privacy-note">For safety, this page does not expose document text, embeddings, file hashes, database details, API keys, or member information.</p>
     </main>

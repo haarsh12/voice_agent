@@ -18,6 +18,7 @@ import type {
   GrievanceStatus,
 } from '../types/api'
 import type { ServerWebAuthnOptions, WebAuthnCredentialJSON } from './webauthn'
+import { cache } from './cache'
 
 // Local Vite development uses the same-origin /api proxy. This works when the
 // site is opened from another device on the LAN; 127.0.0.1 would otherwise
@@ -86,6 +87,7 @@ export function getSchemes(params: {
   state?: string
   relevantToMe?: boolean
   offset?: number
+  useCache?: boolean
 } = {}): Promise<SchemeSearchResponse> {
   const query = new URLSearchParams()
   if (params.query?.trim()) query.set('query', params.query.trim())
@@ -95,15 +97,43 @@ export function getSchemes(params: {
   if (params.relevantToMe) query.set('relevant_to_me', 'true')
   if (params.offset) query.set('offset', String(params.offset))
   const suffix = query.size ? `?${query.toString()}` : ''
-  return request<SchemeSearchResponse>(`/api/schemes${suffix}`)
+  const endpoint = `/api/schemes${suffix}`
+  
+  // Use cache if requested and offset is 0 (first page)
+  if (params.useCache !== false && (params.offset ?? 0) === 0) {
+    const cacheKey = `schemes_${suffix}`
+    const cached = cache.get<SchemeSearchResponse>(cacheKey)
+    if (cached) return Promise.resolve(cached)
+    
+    return request<SchemeSearchResponse>(endpoint).then((result) => {
+      cache.set(cacheKey, result, { ttl: 3 * 60 * 1000 }) // 3 minutes
+      return result
+    })
+  }
+  
+  return request<SchemeSearchResponse>(endpoint)
 }
 
 export function getSchemeFilters(): Promise<SchemeFilters> {
-  return request<SchemeFilters>('/api/schemes/filters')
+  const cacheKey = 'scheme_filters'
+  const cached = cache.get<SchemeFilters>(cacheKey)
+  if (cached) return Promise.resolve(cached)
+  
+  return request<SchemeFilters>('/api/schemes/filters').then((result) => {
+    cache.set(cacheKey, result, { ttl: 10 * 60 * 1000 }) // 10 minutes
+    return result
+  })
 }
 
 export function getSchemeDetail(identifier: string): Promise<SchemeDetail> {
-  return request<SchemeDetail>(`/api/schemes/${encodeURIComponent(identifier)}`)
+  const cacheKey = `scheme_detail_${identifier}`
+  const cached = cache.get<SchemeDetail>(cacheKey)
+  if (cached) return Promise.resolve(cached)
+  
+  return request<SchemeDetail>(`/api/schemes/${encodeURIComponent(identifier)}`).then((result) => {
+    cache.set(cacheKey, result, { ttl: 5 * 60 * 1000 }) // 5 minutes
+    return result
+  })
 }
 
 export function getGrievances(params: { state?: GrievanceStatus; query?: string } = {}): Promise<GrievanceListResponse> {
@@ -173,8 +203,18 @@ export function getAdminSession(): Promise<AdminSession> {
   return request('/api/admin/session')
 }
 
-export function getKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
-  return request('/api/knowledge-base/status')
+export function getKnowledgeBaseStatus(useCache = true): Promise<KnowledgeBaseStatus> {
+  const cacheKey = 'knowledge_base_status'
+  
+  if (useCache) {
+    const cached = cache.get<KnowledgeBaseStatus>(cacheKey)
+    if (cached) return Promise.resolve(cached)
+  }
+  
+  return request<KnowledgeBaseStatus>('/api/knowledge-base/status').then((result) => {
+    cache.set(cacheKey, result, { ttl: 2 * 60 * 1000 }) // 2 minutes for knowledge base
+    return result
+  })
 }
 
 export async function endAdminSession(): Promise<void> {

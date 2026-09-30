@@ -1,0 +1,107 @@
+/* Skeleton loading animations */
+
+.skeleton-box {
+  background: linear-gradient(
+    90deg,
+    #f5f5f5 0%,
+    #fafafa 50%,
+    #f5f5f5 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  opacity: 0.7;
+}
+
+.skeleton-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .skeleton-box {
+    background: linear-gradient(
+      90deg,
+      #2c2c2c 0%,
+      #383838 50%,
+      #2c2c2c 100%
+    );
+    opacity: 0.5;
+  }
+}
+
+/* Scheme card skeleton specific styles */
+.scheme-card--skeleton {
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.scheme-card__icon-skeleton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scheme-card__badge-skeleton {
+  margin-bottom: 0.25rem;
+}
+
+.scheme-card__details-skeleton {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.scheme-card__details-skeleton > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Knowledge base source card skeleton */
+.knowledge-base-source-card--skeleton {
+  pointer-events: none;
+}
+
+.knowledge-base-source-card--skeleton dl {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.knowledge-base-source-card--skeleton dl > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Metric skeleton */
+.metric-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border-radius: 8px;
+  background: #fafafa;
+  border: 1px solid #ececec;
+}
+
+@media (prefers-color-scheme: dark) {
+  .metric-skeleton {
+    background: #1f1f1f;
+    border-color: #2c2c2c;
+  }
+}
