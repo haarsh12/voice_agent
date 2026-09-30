@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useRef, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   BookOpenCheck,
@@ -41,13 +41,15 @@ function profileName(profile: SahayakProfile): string {
   return profile.full_name?.split(/\s+/)[0] || 'there'
 }
 
-export function Dashboard({ profile, onNavigate }: { profile: SahayakProfile; onNavigate: Navigate }) {
+export function Dashboard({ profile, onNavigate, onOpenAuth }: { profile?: SahayakProfile | null; onNavigate: Navigate; onOpenAuth: () => void }) {
+  const isGuest = !profile
   return (
     <main className="portal-page">
       <section className="dashboard-welcome">
-        <div><p className="section-kicker">Your service space</p><h1>Welcome, {profileName(profile)}.</h1><p>What would you like help understanding today?</p></div>
+        <div><p className="section-kicker">{isGuest ? 'Public service directory' : 'Your service space'}</p><h1>{isGuest ? 'Explore Sahayak services.' : `Welcome, ${profileName(profile)}.`}</h1><p>{isGuest ? 'Browse every service as a guest. Sign in only when you want personalised support.' : 'What would you like help understanding today?'}</p></div>
         <button className="primary-action" onClick={() => onNavigate('/voice')} type="button"><Mic size={18} /> Talk to Sahayak</button>
       </section>
+      {isGuest && <p className="source-notice"><BookOpenCheck size={18} /> All public services are available to explore. Tell Sahayak your category for a more relevant scheme shortlist.</p>}
       <section className="voice-callout">
         <div className="voice-callout__orb"><Mic size={27} /></div>
         <div><span className="status-dot" /> Voice assistant ready<h2>Ask naturally. Receive guidance in your chosen language.</h2><p>Switch between all 10 supported languages from your voice workspace.</p></div>
@@ -57,9 +59,10 @@ export function Dashboard({ profile, onNavigate }: { profile: SahayakProfile; on
         <div className="service-grid">{SERVICES.map(({ icon: Icon, label, route, text }) => <button className="service-card" key={label} onClick={() => onNavigate(route)} type="button"><span><Icon size={21} /></span><h3>{label}</h3><p>{text}</p><ChevronRight size={17} /></button>)}</div>
       </section>
       <section className="dashboard-lower">
-        <div className="preview-card"><div><BookOpenCheck size={20} /><span className="preview-badge">Preview</span></div><h3>Suggested support will appear here.</h3><p>Personalised scheme information will only be shown after the verified knowledge base is connected.</p><button onClick={() => onNavigate('/schemes')} type="button">View scheme space <ChevronRight size={16} /></button></div>
+        <div className="preview-card"><div><BookOpenCheck size={20} /><span className="preview-badge">Scheme guide</span></div><h3>{isGuest ? 'Find support for your category.' : 'Your relevant scheme guide.'}</h3><p>{isGuest ? 'Choose a category in the scheme directory, then ask Sahayak any eligibility or document question.' : 'Your profile category keeps the scheme directory focused on support relevant to you.'}</p><button onClick={() => onNavigate('/schemes')} type="button">View schemes <ChevronRight size={16} /></button></div>
         <div className="preview-card"><div><Bell size={20} /><span className="preview-badge">Preview</span></div><h3>Stay informed without the noise.</h3><p>Important updates and document reminders will be available in your notifications space.</p><button onClick={() => onNavigate('/notifications')} type="button">View notifications <ChevronRight size={16} /></button></div>
       </section>
+      {isGuest && <p className="inline-notice">Sign in to save documents, receive notifications, and use a profile-based scheme shortlist. <button className="link-action" onClick={onOpenAuth} type="button">Sign in</button></p>}
     </main>
   )
 }
@@ -90,20 +93,117 @@ export function DocumentsView({ onTalk }: { onTalk: () => void }) {
   )
 }
 
-const SCHEME_CATEGORIES = [
-  { icon: Leaf, title: 'Agriculture', summary: 'Official agriculture-support content will be added after source verification.' },
-  { icon: ShieldAlert, title: 'Crop insurance', summary: 'PMFBY guidance will cite the current official source and jurisdiction.' },
-  { icon: Landmark, title: 'Cooperative', summary: 'Member services and cooperative-programme guidance will be verified before publishing.' },
-  { icon: WalletCards, title: 'Financial assistance', summary: 'Financial-awareness information will be educational and source-grounded.' },
-  { icon: UserRound, title: 'Member services', summary: 'Your eligible local services will appear once the verified data layer is ready.' },
+type SchemeAudience = UserType | 'all'
+type SchemeGuide = {
+  icon: typeof Landmark
+  name: string
+  category: string
+  summary: string
+  eligibility: string
+  documents: string
+  timing: string
+  appliesTo: SchemeAudience[]
+}
+
+const USER_TYPE_LABELS: Record<UserType, string> = {
+  cooperative_member: 'Cooperative member',
+  farmer: 'Farmer',
+  pacs_member: 'PACS member',
+  cooperative_official: 'Cooperative official',
+  rural_stakeholder: 'Rural stakeholder',
+  other: 'Other rural stakeholder',
+}
+
+const SCHEME_GUIDES: SchemeGuide[] = [
+  {
+    icon: Leaf,
+    name: 'PM-KISAN guidance',
+    category: 'Farmer support',
+    summary: 'A Sahayak guide for income-support questions from eligible landholding farmer families.',
+    eligibility: 'Landholding farmer-family status and programme exclusions need to match your current record.',
+    documents: 'Keep identity, bank, land-record and e-KYC details ready when Sahayak asks for them.',
+    timing: 'Updates and instalment timing can change; ask Sahayak for the current information available here.',
+    appliesTo: ['farmer'],
+  },
+  {
+    icon: ShieldAlert,
+    name: 'PMFBY crop-insurance guidance',
+    category: 'Crop insurance',
+    summary: 'Understand crop-insurance coverage, loss reporting and claim-preparation questions in one place.',
+    eligibility: 'It depends on your crop, notified area, season and the applicable insurance cycle.',
+    documents: 'Keep crop, land or tenancy, sowing and policy or acknowledgement details available.',
+    timing: 'Seasonal windows and loss-reporting timelines vary. Sahayak will use the available current record for your question.',
+    appliesTo: ['farmer', 'pacs_member', 'rural_stakeholder'],
+  },
+  {
+    icon: WalletCards,
+    name: 'Kisan Credit Card guidance',
+    category: 'Farm finance',
+    summary: 'Prepare questions about short-term agricultural credit and related farming activities.',
+    eligibility: 'Farmers and some allied-activity participants may qualify based on their activity and lender assessment.',
+    documents: 'Keep identity, address, land or activity proof, and existing credit details ready.',
+    timing: 'There is no single universal deadline shown here; ask Sahayak about the requirement you are preparing for.',
+    appliesTo: ['farmer', 'pacs_member', 'cooperative_member', 'rural_stakeholder'],
+  },
+  {
+    icon: Landmark,
+    name: 'Agriculture Infrastructure Fund guidance',
+    category: 'Cooperative infrastructure',
+    summary: 'Plan questions for storage, processing and other eligible farm-infrastructure proposals.',
+    eligibility: 'PACS, farmer groups, cooperatives and other eligible project entities depend on the project type and programme terms.',
+    documents: 'Keep entity registration, project outline, cost estimate, ownership or lease and financial records ready.',
+    timing: 'Programme windows and approval requirements can change; Sahayak can help you prepare a complete question.',
+    appliesTo: ['farmer', 'pacs_member', 'cooperative_member', 'cooperative_official'],
+  },
+  {
+    icon: Landmark,
+    name: 'PACS computerisation support',
+    category: 'PACS services',
+    summary: 'Organise PACS digitisation, records and service-readiness questions for your cooperative.',
+    eligibility: 'The PACS status, state implementation process and approved scope determine whether support applies.',
+    documents: 'Keep PACS registration, committee, audit, member-record and existing-system details ready.',
+    timing: 'Implementation schedules are location-specific. Share your state and PACS role with Sahayak for a focused guide.',
+    appliesTo: ['pacs_member', 'cooperative_official', 'cooperative_member'],
+  },
+  {
+    icon: UserRound,
+    name: 'Cooperative member-service guide',
+    category: 'Cooperative services',
+    summary: 'Understand membership records, meetings, service requests and documents to organise for a cooperative query.',
+    eligibility: 'This guidance is for existing members or people preparing a membership or service request with a cooperative.',
+    documents: 'Keep membership number, cooperative name, relevant receipts, meeting or service records and any written request.',
+    timing: 'Service timelines depend on the cooperative and the issue. Sahayak can help you make a clear follow-up plan.',
+    appliesTo: ['cooperative_member', 'pacs_member', 'cooperative_official', 'rural_stakeholder'],
+  },
+  {
+    icon: MessageSquareWarning,
+    name: 'Grievance preparation guide',
+    category: 'Support and grievances',
+    summary: 'Turn a service problem into a clear, factual grievance draft and keep the relevant evidence together.',
+    eligibility: 'Anyone with a specific service issue can use this guidance; the right path depends on the organisation and facts.',
+    documents: 'Keep dates, acknowledgements, receipts, correspondence, reference numbers and the outcome you need.',
+    timing: 'Record the date of each step and any stated response period. Sahayak can help structure your follow-up.',
+    appliesTo: ['all'],
+  },
 ]
 
-export function SchemesView({ onTalk }: { onTalk: () => void }) {
+export function SchemesView({ onTalk, profile }: { onTalk: () => void; profile?: SahayakProfile | null }) {
+  const isGuest = !profile
+  const [guestAudience, setGuestAudience] = useState<SchemeAudience>('all')
+  const audience = profile?.user_type ?? guestAudience
+  const schemes = useMemo(
+    () => SCHEME_GUIDES.filter((scheme) => audience === 'all' || scheme.appliesTo.includes('all') || scheme.appliesTo.includes(audience)),
+    [audience],
+  )
   return (
     <main className="portal-page">
-      <PageTitle eyebrow="Scheme discovery" title="Find trusted support, clearly." text="This preview deliberately does not invent eligibility, benefits, deadlines or requirements. Verified official sources will be connected next." />
-      <p className="source-notice"><BookOpenCheck size={18} /> Official knowledge source connection pending — all cards below are placeholders.</p>
-      <section className="scheme-grid">{SCHEME_CATEGORIES.map(({ icon: Icon, title, summary }) => <article className="scheme-card" key={title}><span><Icon size={21} /></span><p className="preview-badge">Preview category</p><h2>{title}</h2><p>{summary}</p><dl><div><dt>Eligibility</dt><dd>Verified details forthcoming</dd></div><div><dt>Documents</dt><dd>Verified details forthcoming</dd></div></dl><button className="link-action" onClick={onTalk} type="button">Ask a general question <ChevronRight size={15} /></button></article>)}</section>
+      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find support for your situation.' : 'Your relevant scheme guide.'} text={isGuest ? 'Choose your category to see available guidance, eligibility questions, document checklists and timing considerations in Sahayak AI.' : `This view is tailored to your profile category: ${USER_TYPE_LABELS[profile.user_type ?? 'other']}.`} />
+      <section className="scheme-toolbar" aria-label="Scheme audience">
+        <div><BookOpenCheck size={19} /><div><strong>{isGuest ? 'Guest scheme directory' : 'Personalised scheme directory'}</strong><p>{isGuest ? 'Select a category, or ask Sahayak to narrow the list using your crop, location or cooperative role.' : 'Only guidance relevant to your registered category is shown. Update your profile if your role has changed.'}</p></div></div>
+        {isGuest && <label> I am a <select onChange={(event) => setGuestAudience(event.target.value as SchemeAudience)} value={guestAudience}><option value="all">Guest — show all</option>{(Object.entries(USER_TYPE_LABELS) as [UserType, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
+      </section>
+      <section className="scheme-grid">{schemes.map(({ icon: Icon, name, category, summary, eligibility, documents, timing }) => <article className="scheme-card scheme-card--detailed" key={name}><span><Icon size={21} /></span><p className="preview-badge">{category}</p><h2>{name}</h2><p>{summary}</p><dl><div><dt>Who this may fit</dt><dd>{eligibility}</dd></div><div><dt>Keep ready</dt><dd>{documents}</dd></div><div><dt>Timing</dt><dd>{timing}</dd></div></dl><button className="link-action" onClick={onTalk} type="button">Ask Sahayak about this <ChevronRight size={15} /></button></article>)}</section>
+      {schemes.length === 0 && <EmptyState icon={BookOpenCheck} text="No guidance matches this category yet. Ask Sahayak to help with your specific role and requirement." actionLabel="Ask Sahayak" onAction={onTalk} />}
     </main>
   )
 }

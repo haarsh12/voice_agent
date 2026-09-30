@@ -24,7 +24,11 @@ def get_engine() -> AsyncEngine | None:
     if not database_url:
         return None
     if database_url.startswith("sqlite"):
-        return create_async_engine(database_url)
+        # The local API and the offline ingestion worker legitimately share
+        # one demo database. SQLite permits one writer at a time, so wait for
+        # a short transaction instead of failing a source check immediately.
+        # Hosted PostgreSQL continues to use its normal concurrent engine.
+        return create_async_engine(database_url, connect_args={"timeout": 30})
     return create_async_engine(database_url, pool_pre_ping=True, pool_recycle=300)
 
 
@@ -56,6 +60,10 @@ def _upgrade_development_sqlite_schema(connection: Connection) -> None:
         "sahayak_knowledge_sources": {
             "discovery_path_prefixes": "JSON NOT NULL DEFAULT '[]'",
             "max_documents_per_check": "INTEGER NOT NULL DEFAULT 25",
+            "expected_categories": "JSON NOT NULL DEFAULT '[]'",
+        },
+        "sahayak_knowledge_document_versions": {
+            "coverage_categories": "JSON NOT NULL DEFAULT '[]'",
         },
     }
     for table, upgrades in upgrades_by_table.items():

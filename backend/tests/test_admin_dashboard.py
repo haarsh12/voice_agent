@@ -18,12 +18,17 @@ def _admin_settings() -> Settings:
     )
 
 
-def test_admin_dashboard_requires_an_isolated_admin_session(client) -> None:
+def test_admin_session_is_isolated_from_the_public_knowledge_base(client) -> None:
     settings = _admin_settings()
     app.dependency_overrides[get_settings] = lambda: settings
     try:
-        denied = client.get("/api/admin/knowledge-dashboard")
-        assert denied.status_code == 401
+        public_status = client.get("/api/knowledge-base/status")
+        assert public_status.status_code == 200, public_status.text
+        payload = public_status.json()
+        assert payload["storage"]["vector_index"] == "not_configured"
+        assert "sources" in payload
+        assert "content_hash" not in str(payload)
+        assert "failure_code" not in str(payload)
 
         rejected = client.post(
             "/api/admin/session",
@@ -40,13 +45,7 @@ def test_admin_dashboard_requires_an_isolated_admin_session(client) -> None:
         assert "sahayak_admin_session" in signed_in.headers.get("set-cookie", "")
         assert "HttpOnly" in signed_in.headers.get("set-cookie", "")
 
-        dashboard = client.get("/api/admin/knowledge-dashboard")
-        assert dashboard.status_code == 200, dashboard.text
-        payload = dashboard.json()
-        assert payload["storage"]["vector_index"] == "not_configured"
-        assert "sources" in payload
-        assert "content_hash" not in str(payload)
-        assert "vector" not in str(payload["recent_documents"])
+        assert client.get("/api/admin/knowledge-dashboard").status_code == 404
     finally:
         app.dependency_overrides.clear()
 
@@ -66,6 +65,6 @@ def test_admin_logout_requires_its_own_csrf_token(client) -> None:
         assert csrf
         signed_out = client.delete("/api/admin/session", headers={"X-Sahayak-Admin-CSRF": csrf})
         assert signed_out.status_code == 204
-        assert client.get("/api/admin/knowledge-dashboard").status_code == 401
+        assert client.get("/api/admin/session").status_code == 401
     finally:
         app.dependency_overrides.clear()

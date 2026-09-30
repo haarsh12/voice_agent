@@ -10,6 +10,7 @@ from app.admin.routes import router as admin_router
 from app.auth.routes import router as auth_router
 from app.config.settings import get_settings
 from app.core.logging import configure_logging
+from app.knowledge.routes import router as knowledge_router
 
 settings = get_settings()
 configure_logging()
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(knowledge_router)
 
 
 if __name__ == "__main__":

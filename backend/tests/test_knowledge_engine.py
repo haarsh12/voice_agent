@@ -51,6 +51,14 @@ def test_source_registry_contains_exactly_the_ten_approved_source_groups() -> No
     assert SOURCES_BY_KEY["india_code"].check_interval_hours == 24 * 7
 
 
+def test_every_reviewed_source_category_has_an_explicit_crawl_target() -> None:
+    for source in SOURCE_REGISTRY:
+        assert source.crawl_targets
+        target_categories = {category for target in source.crawl_targets for category in target.categories}
+        assert set(source.expected_categories).issubset(target_categories)
+        assert all(is_approved_source_url(target.url, source) for target in source.crawl_targets)
+
+
 def test_registry_rejects_userinfo_http_and_unapproved_redirect_targets() -> None:
     source = SOURCES_BY_KEY["pmfby"]
     assert is_approved_source_url("https://pmfby.gov.in/", source)
@@ -301,6 +309,55 @@ def test_document_versions_preserve_history_and_only_one_current_version() -> No
             assert first.status == DocumentStatus.SUPERSEDED.value
             assert second.status == DocumentStatus.CURRENT.value
             assert second.version_number == first.version_number + 1
+        await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_coverage_and_failed_resource_state_are_auditable_independently() -> None:
+    async def scenario() -> None:
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as connection:
+            await connection.run_sync(AuthBase.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            repository = KnowledgeRepository(session)
+            await repository.sync_source_registry()
+            source = SOURCES_BY_KEY["pmfby"]
+            version, changed = await repository.record_document_version(
+                source_key=source.key,
+                canonical_url="https://pmfby.gov.in/faq",
+                source_url="https://pmfby.gov.in/faq",
+                title="PMFBY FAQ",
+                content_hash="c" * 64,
+                extraction_method="html",
+                is_ocr=False,
+                ocr_confidence=None,
+                source_metadata={},
+                coverage_categories=source.expected_categories,
+            )
+            assert changed
+            await repository.add_chunks(
+                document_version_id=version.id,
+                chunks=[{"content": "Verified PMFBY FAQ content.", "content_hash": "d" * 64}],
+            )
+            await session.commit()
+            await repository.record_resource_failure(
+                source_key=source.key,
+                canonical_url="https://pmfby.gov.in/pdf/unavailable.pdf",
+                failure_code="source_fetch_failed",
+            )
+            snapshot = await repository.admin_dashboard_snapshot()
+            row = next(item for item in snapshot["sources"] if item["key"] == source.key)
+            assert row["coverage_state"] == "COMPLETE"
+            assert row["failed_resource_count"] == 1
+            await repository.resolve_resource_failure(
+                source_key=source.key,
+                canonical_url="https://pmfby.gov.in/pdf/unavailable.pdf",
+            )
+            resolved = await repository.admin_dashboard_snapshot()
+            resolved_row = next(item for item in resolved["sources"] if item["key"] == source.key)
+            assert resolved_row["failed_resource_count"] == 0
         await engine.dispose()
 
     asyncio.run(scenario())

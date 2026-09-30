@@ -143,6 +143,7 @@ class GuestContextResponse(BaseModel):
 
     context: str
     knowledge_context: VoiceKnowledgeContext | None = None
+    has_reference_documents: bool = False
 
 
 class VoiceTurnRequest(BaseModel):
@@ -272,6 +273,7 @@ async def get_voice_guest_context(session_id: str, request: Request) -> GuestCon
     return GuestContextResponse(
         context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
         knowledge_context=knowledge_context,
+        has_reference_documents=bool(snapshot.documents),
     )
 
 
@@ -445,7 +447,14 @@ async def create_text_chat_reply(
         else None
     )
     retrieval = await KnowledgeRetriever(session, settings).retrieve(message, user_context=user_context)
-    decision = decide_response(message=message, language=language, retrieval=retrieval)
+    decision = decide_response(
+        message=message,
+        language=language,
+        retrieval=retrieval,
+        # Attached and already-session-scoped documents can be explained, but
+        # the model must not represent them as verified current policy.
+        has_reference_document=bool(document or snapshot.documents),
+    )
 
     if decision.requires_abstention:
         reply = decision.abstention_message or "I could not verify that information from official sources."

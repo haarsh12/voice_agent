@@ -14,8 +14,9 @@ type SahayakHeaderProps = {
 const NAVIGATION: Array<{ label: string; route: AppRoute; protected?: boolean }> = [
   { label: 'Discover', route: '/' },
   { label: 'Ask Sahayak', route: '/voice' },
-  { label: 'Services', route: '/dashboard', protected: true },
-  { label: 'Schemes', route: '/schemes', protected: true },
+  { label: 'Services', route: '/dashboard' },
+  { label: 'Schemes', route: '/schemes' },
+  { label: 'Knowledge Base', route: '/knowledge-base' },
   { label: 'Admin', route: '/admin' },
 ]
 

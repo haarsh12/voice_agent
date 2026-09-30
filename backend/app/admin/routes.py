@@ -1,14 +1,11 @@
-"""Admin-only read API for the trusted knowledge-engine operational dashboard."""
+"""Separate, rate-limited administrator session endpoints."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.security import (
     clear_admin_session,
@@ -18,10 +15,7 @@ from app.admin.security import (
     verify_admin_credentials,
 )
 from app.auth.rate_limit import SlidingWindowRateLimiter
-from app.auth.session import get_auth_session
 from app.config.settings import MissingConfigurationError, Settings, get_settings
-from app.knowledge.repository import KnowledgeRepository
-from app.knowledge.vectors import QdrantVectorStore, VectorStoreError
 
 router = APIRouter(prefix="/api/admin", tags=["knowledge administration"])
 _login_limiter = SlidingWindowRateLimiter(max_requests=5, window_seconds=300)
@@ -37,63 +31,6 @@ class AdminLoginRequest(BaseModel):
 
 class AdminSessionResponse(BaseModel):
     authenticated: bool
-
-
-class AdminStorageSummary(BaseModel):
-    relational_database: str
-    vector_index: str
-    vector_point_count: int | None = Field(default=None, ge=0)
-    source_count: int = Field(ge=0)
-    document_count: int = Field(ge=0)
-    current_document_count: int = Field(ge=0)
-    chunk_count: int = Field(ge=0)
-
-
-class AdminCheckSummary(BaseModel):
-    started_at: datetime
-    completed_at: datetime | None = None
-    result: str
-    checked_documents: int = Field(ge=0)
-    changed_documents: int = Field(ge=0)
-    failure_code: str | None = None
-
-
-class AdminSourceSummary(BaseModel):
-    key: str
-    name: str
-    category: str
-    geographic_scope: str
-    approved_domains: list[str]
-    entry_urls: list[str]
-    enabled: bool
-    validation_status: str
-    check_interval_hours: int = Field(ge=1)
-    last_successful_check_at: datetime | None = None
-    last_detected_change_at: datetime | None = None
-    last_successful_ingestion_at: datetime | None = None
-    current_document_count: int = Field(ge=0)
-    chunk_count: int = Field(ge=0)
-    latest_check: AdminCheckSummary | None = None
-
-
-class AdminDocumentSummary(BaseModel):
-    source_key: str
-    source_name: str
-    title: str
-    url: str
-    version_number: int = Field(ge=1)
-    status: str
-    last_checked_at: datetime
-    first_retrieved_at: datetime
-    extraction_method: str | None = None
-    is_ocr: bool
-
-
-class AdminKnowledgeDashboard(BaseModel):
-    generated_at: datetime
-    storage: AdminStorageSummary
-    sources: list[AdminSourceSummary]
-    recent_documents: list[AdminDocumentSummary]
 
 
 @router.post("/session", response_model=AdminSessionResponse)
@@ -147,39 +84,3 @@ async def end_admin_session(
 ) -> None:
     require_admin_csrf(request)
     clear_admin_session(response, settings=settings)
-
-
-@router.get("/knowledge-dashboard", response_model=AdminKnowledgeDashboard)
-async def get_knowledge_dashboard(
-    session: AsyncSession = Depends(get_auth_session),
-    _: None = Depends(get_current_admin),
-    settings: Settings = Depends(get_settings),
-) -> AdminKnowledgeDashboard:
-    """Expose source/audit metadata, never raw knowledge or provider secrets."""
-
-    snapshot = await KnowledgeRepository(session).admin_dashboard_snapshot()
-    vector_status = "not_configured"
-    vector_point_count: int | None = None
-    vector_store = QdrantVectorStore(settings)
-    if vector_store.configured:
-        try:
-            vector_point_count = await asyncio.to_thread(vector_store.count)
-            vector_status = "connected"
-        except VectorStoreError:
-            vector_status = "unavailable"
-            _logger.warning("admin_vector_status_unavailable")
-
-    return AdminKnowledgeDashboard(
-        generated_at=datetime.now(UTC),
-        storage=AdminStorageSummary(
-            relational_database="connected",
-            vector_index=vector_status,
-            vector_point_count=vector_point_count,
-            source_count=int(snapshot["source_count"]),
-            document_count=int(snapshot["document_count"]),
-            current_document_count=int(snapshot["current_document_count"]),
-            chunk_count=int(snapshot["chunk_count"]),
-        ),
-        sources=[AdminSourceSummary.model_validate(source) for source in snapshot["sources"]],
-        recent_documents=[AdminDocumentSummary.model_validate(item) for item in snapshot["recent_documents"]],
-    )

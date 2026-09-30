@@ -32,6 +32,7 @@ class VoiceKnowledgeService:
         message: str,
         language: str,
         user_context: UserKnowledgeContext | None = None,
+        has_reference_document: bool = False,
     ) -> VoiceKnowledgeTurn:
         """Build transient LLM instructions and UI references for one voice turn."""
 
@@ -52,9 +53,14 @@ class VoiceKnowledgeService:
                 # database/Qdrant error to the caller or the model.
                 retrieval = RetrievalResult(unavailable_reason="verified_retrieval_unavailable")
 
-        decision = decide_response(message=message, language=language, retrieval=retrieval)
+        decision = decide_response(
+            message=message,
+            language=language,
+            retrieval=retrieval,
+            has_reference_document=has_reference_document,
+        )
         if decision.requires_abstention:
-            reply = decision.abstention_message or "I could not verify that information from official sources."
+            reply = decision.abstention_message or "That detail is not yet available in Sahayak AI's knowledge base."
             instructions = (
                 "VERIFIED KNOWLEDGE POLICY: No current verified evidence supports this "
                 f"authoritative request. Reply exactly with this text and do not add facts: {reply}"
@@ -65,8 +71,8 @@ class VoiceKnowledgeService:
                 f"{format_evidence_for_model(decision.retrieval.evidence)}\n"
                 "VERIFIED KNOWLEDGE EVIDENCE END\n"
                 "Use authoritative facts only from this evidence. If it does not support a "
-                "detail, say that it could not be verified. Do not name sources, citations, "
-                "or URLs aloud; the interface renders them separately."
+                "detail, say that it is not yet available in Sahayak AI's knowledge base. "
+                "Do not name sources, citations, or URLs aloud."
             )
         else:
             instructions = (

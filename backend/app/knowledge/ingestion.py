@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,7 @@ from app.knowledge.fetching import (
 )
 from app.knowledge.registry import SOURCES_BY_KEY, ApprovedSourceDefinition
 from app.knowledge.repository import KnowledgeRepository
+from app.knowledge.models import KnowledgeChunk, KnowledgeDocument, KnowledgeDocumentVersion, KnowledgeSource
 from app.knowledge.ocr import OcrProvider, create_ocr_provider
 from app.knowledge.vectors import (
     EmbeddingError,
@@ -32,6 +34,15 @@ from app.knowledge.vectors import (
 )
 
 logger = logging.getLogger("sahayak.knowledge.ingestion")
+
+
+@dataclass(frozen=True)
+class VectorConsistencyReport:
+    """Counts from a Qdrant repair run; no source content is logged or returned."""
+
+    current_records: int
+    repaired_missing: int
+    retired_stale: int
 
 
 class KnowledgeIngestionService:
@@ -84,11 +95,17 @@ class KnowledgeIngestionService:
         changed = 0
         failures = 0
         try:
-            entry_urls = {url for url in self.adapter.documents_to_check(source)}
-            pending_urls = deque(entry_urls)
+            entry_urls = self.adapter.documents_to_check(source)
+            # Each discovered document inherits only the categories from its
+            # reviewed parent target. We never infer coverage from model text
+            # or a URL keyword, so a successful generic homepage check cannot
+            # make PMFBY claims or legal coverage appear complete.
+            pending_urls = deque(
+                (url, source.categories_for_entry_url(url)) for url in entry_urls
+            )
             seen_urls: set[str] = set()
             while pending_urls and checked < source.max_documents_per_check:
-                url = pending_urls.popleft()
+                url, coverage_categories = pending_urls.popleft()
                 if url in seen_urls:
                     continue
                 seen_urls.add(url)
@@ -99,10 +116,16 @@ class KnowledgeIngestionService:
                         url,
                         discover=url in entry_urls,
                         force_discovery_refresh=url in entry_urls,
+                        coverage_categories=coverage_categories,
                     )
                 except (EmbeddingError, SourceFetchError, SourceExtractionError, VectorStoreError, ValueError) as error:
                     await self.repository.session.rollback()
                     failures += 1
+                    await self.repository.record_resource_failure(
+                        source_key=source.key,
+                        canonical_url=url,
+                        failure_code=str(error) or type(error).__name__,
+                    )
                     logger.warning(
                         "knowledge_document_check_failed source=%s reason=%s",
                         source.key,
@@ -112,7 +135,7 @@ class KnowledgeIngestionService:
                 changed += int(was_changed)
                 for discovered_url in discovered_urls:
                     if discovered_url not in seen_urls:
-                        pending_urls.append(discovered_url)
+                        pending_urls.append((discovered_url, coverage_categories))
         except Exception:
             # An unexpected worker failure still leaves prior CURRENT versions
             # intact; browser queries will never get an invented fallback.
@@ -155,6 +178,85 @@ class KnowledgeIngestionService:
         )
         return result
 
+    async def reconcile_current_vectors(self, *, source_key: str | None = None) -> VectorConsistencyReport:
+        """Repair only missing/stale Qdrant points from the durable CURRENT corpus.
+
+        The job is deliberately explicit (CLI-triggered), not part of a user
+        request or chat turn. It makes a derived vector index converge without
+        replacing relational audit history or fetching arbitrary content.
+        """
+
+        rows = await self.repository.current_chunks_for_reindex(source_key=source_key)
+        expected_ids = {chunk.vector_point_id for chunk, _version, _document, _source in rows}
+        filters = {"document_status": DocumentStatus.CURRENT.value}
+        if source_key is not None:
+            filters["source_key"] = source_key
+        await asyncio.to_thread(self.vector_store.ensure_collection)
+        indexed_ids = await asyncio.to_thread(self.vector_store.existing_point_ids, filters=filters)
+        missing_rows = [row for row in rows if row[0].vector_point_id not in indexed_ids]
+        stale_ids = sorted(indexed_ids - expected_ids)
+        if missing_rows:
+            vectors = await asyncio.to_thread(
+                self.embedding_provider.embed,
+                [chunk.content for chunk, _version, _document, _source in missing_rows],
+            )
+            if len(vectors) != len(missing_rows):
+                raise VectorStoreError("embedding_chunk_count_mismatch")
+            await asyncio.to_thread(
+                self.vector_store.upsert,
+                [
+                    self._vector_record(chunk, version, document, source, vector)
+                    for (chunk, version, document, source), vector in zip(missing_rows, vectors, strict=True)
+                ],
+            )
+        if stale_ids:
+            await asyncio.to_thread(
+                self.vector_store.set_document_status,
+                stale_ids,
+                DocumentStatus.SUPERSEDED.value,
+            )
+        report = VectorConsistencyReport(
+            current_records=len(rows),
+            repaired_missing=len(missing_rows),
+            retired_stale=len(stale_ids),
+        )
+        logger.info(
+            "knowledge_vector_reconciled source=%s current=%s repaired=%s retired=%s",
+            source_key or "all",
+            report.current_records,
+            report.repaired_missing,
+            report.retired_stale,
+        )
+        return report
+
+    async def reindex_current_source(self, source_key: str) -> int:
+        """Force a reviewed source's CURRENT chunks back into Qdrant.
+
+        This is a controlled recovery operation for an embedding-model change
+        or a confirmed Qdrant data-loss event. It never deletes source
+        versions and it reuses only already-approved, extracted text.
+        """
+
+        rows = await self.repository.current_chunks_for_reindex(source_key=source_key)
+        if not rows:
+            return 0
+        vectors = await asyncio.to_thread(
+            self.embedding_provider.embed,
+            [chunk.content for chunk, _version, _document, _source in rows],
+        )
+        if len(vectors) != len(rows):
+            raise VectorStoreError("embedding_chunk_count_mismatch")
+        await asyncio.to_thread(self.vector_store.ensure_collection)
+        await asyncio.to_thread(
+            self.vector_store.upsert,
+            [
+                self._vector_record(chunk, version, document, source, vector)
+                for (chunk, version, document, source), vector in zip(rows, vectors, strict=True)
+            ],
+        )
+        logger.info("knowledge_source_reindexed source=%s chunks=%s", source_key, len(rows))
+        return len(rows)
+
     async def _check_document(
         self,
         source: ApprovedSourceDefinition,
@@ -162,6 +264,7 @@ class KnowledgeIngestionService:
         *,
         discover: bool,
         force_discovery_refresh: bool,
+        coverage_categories: tuple[str, ...],
     ) -> tuple[bool, tuple[str, ...]]:
         """Fetch → compare hash → extract → chunk → embed → index one source document."""
 
@@ -187,6 +290,10 @@ class KnowledgeIngestionService:
             if latest is not None:
                 latest.last_checked_at = datetime.now(UTC)
                 await self.repository.session.commit()
+                await self.repository.resolve_resource_failure(
+                    source_key=source.key,
+                    canonical_url=url,
+                )
             return False, ()
 
         discovered_urls = (
@@ -235,10 +342,15 @@ class KnowledgeIngestionService:
             is_ocr=extracted.is_ocr,
             ocr_confidence=extracted.ocr_confidence,
             source_metadata=metadata,
+            coverage_categories=coverage_categories,
             last_modified_at=parse_http_date(fetched.last_modified),
         )
         if not changed:
             await self.repository.session.commit()
+            await self.repository.resolve_resource_failure(
+                source_key=source.key,
+                canonical_url=fetched.canonical_url,
+            )
             return False, discovered_urls
 
         try:
@@ -280,19 +392,7 @@ class KnowledgeIngestionService:
         await asyncio.to_thread(
             self.vector_store.upsert,
             [
-                VectorRecord(
-                    point_id=chunk.vector_point_id,
-                    vector=vector,
-                    payload={
-                        "source_key": source.key,
-                        "document_version_id": version.id,
-                        "document_status": DocumentStatus.CURRENT.value,
-                        "state": chunk.state or "",
-                        "district": chunk.district or "",
-                        "language": chunk.language or "",
-                        "scheme_key": chunk.scheme_key or "",
-                    },
-                )
+                self._vector_record(chunk, version, None, source, vector)
                 for chunk, vector in zip(stored_chunks, vectors, strict=True)
             ],
         )
@@ -311,4 +411,40 @@ class KnowledgeIngestionService:
                 # cited because its version is SUPERSEDED in PostgreSQL.
                 logger.warning("knowledge_vector_status_sync_deferred source=%s", source.key)
                 pass
+        await self.repository.resolve_resource_failure(
+            source_key=source.key,
+            canonical_url=fetched.canonical_url,
+        )
         return True, discovered_urls
+
+    @staticmethod
+    def _vector_record(
+        chunk: KnowledgeChunk,
+        version: KnowledgeDocumentVersion,
+        document: KnowledgeDocument | None,
+        source: KnowledgeSource | ApprovedSourceDefinition,
+        vector: list[float],
+    ) -> VectorRecord:
+        """Build one stable Qdrant payload from audited relational metadata."""
+
+        # These objects are ORM instances at every call site. Keeping this
+        # helper local prevents duplicate payload contracts between normal
+        # ingestion, missing-point repair, and explicit reindexing.
+        del document
+        return VectorRecord(
+            point_id=chunk.vector_point_id,
+            vector=vector,
+            payload={
+                "source_key": source.key,
+                "document_version_id": version.id,
+                "document_status": DocumentStatus.CURRENT.value,
+                "state": chunk.state or "",
+                "district": chunk.district or "",
+                "language": chunk.language or "",
+                "scheme_key": chunk.scheme_key or "",
+                "source_authority": source.authority_level,
+                "coverage_categories": list(version.coverage_categories),
+                "document_type": source.category,
+                "chunk_type": chunk.heading or "content",
+            },
+        )

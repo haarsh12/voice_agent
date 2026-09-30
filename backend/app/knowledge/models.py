@@ -23,6 +23,7 @@ class KnowledgeSource(AuthBase):
     check_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False)
     approved_domains: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     entry_urls: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    expected_categories: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     discovery_path_prefixes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     max_documents_per_check: Mapped[int] = mapped_column(Integer, nullable=False, default=25)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -88,6 +89,9 @@ class KnowledgeDocumentVersion(AuthBase):
     is_ocr: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     ocr_confidence: Mapped[float | None] = mapped_column()
     source_metadata: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+    # Categories come from the reviewed crawl target, never an LLM inference.
+    # They make coverage measurable independently of fetch/check success.
+    coverage_categories: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
@@ -146,3 +150,26 @@ class KnowledgeSourceCheck(AuthBase):
     changed_documents: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     failure_code: Mapped[str | None] = mapped_column(String(96))
     details: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class KnowledgeFailedResource(AuthBase):
+    """Retry-safe audit state for one official resource that could not be processed."""
+
+    __tablename__ = "sahayak_knowledge_failed_resources"
+    __table_args__ = (
+        UniqueConstraint("source_key", "canonical_url", name="sahayak_knowledge_failed_resource_source_url_key"),
+        Index("sahayak_knowledge_failed_resources_retry_idx", "source_key", "next_retry_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    source_key: Mapped[str] = mapped_column(
+        ForeignKey("sahayak_knowledge_sources.key", ondelete="CASCADE"), nullable=False
+    )
+    canonical_url: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_code: Mapped[str] = mapped_column(String(96), nullable=False)
+    first_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    next_retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="PENDING")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

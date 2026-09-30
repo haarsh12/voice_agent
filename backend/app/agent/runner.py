@@ -103,6 +103,7 @@ class SahayakAssistant(Agent):
         knowledge_service: VoiceKnowledgeService,
         guest_context: str = "",
         user_context: UserKnowledgeContext | None = None,
+        has_reference_documents: bool = False,
     ) -> None:
         super().__init__(
             instructions=build_voice_assistant_instructions(
@@ -112,6 +113,7 @@ class SahayakAssistant(Agent):
         self._active_language = active_language
         self._knowledge_service = knowledge_service
         self._user_context = user_context
+        self._has_reference_documents = has_reference_documents
         self._citation_updates: deque[VoiceCitationUpdate] = deque(maxlen=8)
 
     def set_active_language(self, language: str) -> None:
@@ -134,6 +136,11 @@ class SahayakAssistant(Agent):
 
         self._user_context = user_context
 
+    def set_has_reference_documents(self, has_reference_documents: bool) -> None:
+        """Allow explanation of a session document without treating it as policy."""
+
+        self._has_reference_documents = has_reference_documents
+
     async def on_user_turn_completed(
         self,
         turn_ctx: llm.ChatContext,
@@ -148,6 +155,7 @@ class SahayakAssistant(Agent):
             message=message,
             language=self._active_language,
             user_context=self._user_context,
+            has_reference_document=self._has_reference_documents,
         )
         # This context is scoped to this one reply. The LLM receives evidence
         # text but never source URLs, and TTS receives only the final answer.
@@ -297,6 +305,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
 
     guest_context = ""
     user_context: UserKnowledgeContext | None = None
+    has_reference_documents = False
     if guest_session_id and guest_session_secret:
         try:
             voice_context = await fetch_guest_context(
@@ -306,6 +315,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             )
             guest_context = voice_context.context
             user_context = voice_context.user_context
+            has_reference_documents = voice_context.has_reference_documents
         except GuestSessionClientError:
             # Context enhances the call but an unavailable local API should
             # never prevent the voice agent from starting a conversation.
@@ -323,6 +333,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         VoiceKnowledgeService(settings),
         guest_context,
         user_context,
+        has_reference_documents,
     )
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
@@ -363,7 +374,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     async def refresh_guest_context() -> None:
         """Pull latest text/document history before the next voice reply."""
 
-        nonlocal guest_context, user_context
+        nonlocal guest_context, user_context, has_reference_documents
         if not guest_session_id or not guest_session_secret:
             return
         try:
@@ -374,10 +385,12 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             )
             guest_context = voice_context.context
             user_context = voice_context.user_context
+            has_reference_documents = voice_context.has_reference_documents
         except GuestSessionClientError:
             logger.warning("guest_context_unavailable phase=refresh")
             return
         assistant.set_user_context(user_context)
+        assistant.set_has_reference_documents(has_reference_documents)
         await assistant.update_instructions(
             build_voice_assistant_instructions(LANGUAGE_NAMES[active_language], guest_context)
         )

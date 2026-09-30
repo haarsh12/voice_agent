@@ -1,18 +1,19 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 
 import { AccessGate } from './components/AccessGate'
-import { AdminKnowledgePanel } from './components/AdminKnowledgePanel'
+import { AdminAccessPanel } from './components/AdminAccessPanel'
 import { AuthModal } from './components/AuthModal'
 import { Onboarding } from './components/Onboarding'
 import { Dashboard, DocumentsView, GrievancesView, NotificationsView, ProfileView, SchemesView } from './components/PortalViews'
 import { SahayakHeader } from './components/SahayakHeader'
 import { SahayakLanding } from './components/SahayakLanding'
+import { KnowledgeBasePanel } from './components/KnowledgeBasePanel'
 import { useAuth } from './hooks/useAuth'
 import type { SahayakProfile } from './types/api'
 import { asAppRoute, type AppRoute } from './types/navigation'
 import './App.css'
 
-const PROTECTED_ROUTES: AppRoute[] = ['/dashboard', '/documents', '/schemes', '/grievances', '/notifications', '/profile', '/onboarding']
+const PROTECTED_ROUTES: AppRoute[] = ['/documents', '/grievances', '/notifications', '/profile', '/onboarding']
 const VoiceExperience = lazy(() => import('./components/VoiceExperience'))
 
 function App() {
@@ -56,19 +57,22 @@ function App() {
         content = <Suspense fallback={<main className="page-loader"><span className="loader-ring" /> Opening voice assistant…</main>}><VoiceExperience /></Suspense>
         break
       case '/admin':
-        content = <AdminKnowledgePanel />
+        content = <AdminAccessPanel />
+        break
+      case '/knowledge-base':
+        content = <KnowledgeBasePanel />
         break
       case '/onboarding':
         content = auth.user ? <Onboarding auth={auth} onComplete={() => navigate('/dashboard')} profile={auth.user} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Account setup" />
         break
       case '/dashboard':
-        content = auth.user ? <Dashboard onNavigate={navigate} profile={auth.user} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Services" />
+        content = <Dashboard onNavigate={navigate} onOpenAuth={() => setIsAuthOpen(true)} profile={auth.user} />
         break
       case '/documents':
         content = auth.user ? <DocumentsView onTalk={() => navigate('/voice')} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Documents" />
         break
       case '/schemes':
-        content = auth.user ? <SchemesView onTalk={() => navigate('/voice')} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Schemes" />
+        content = <SchemesView onTalk={() => navigate('/voice')} profile={auth.user} />
         break
       case '/grievances':
         content = auth.user ? <GrievancesView /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Grievance support" />
@@ -80,7 +84,7 @@ function App() {
         content = auth.user ? <ProfileView auth={auth} profile={auth.user} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Profile" />
         break
       default:
-        content = <SahayakLanding onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} onViewServices={() => auth.user ? navigate('/dashboard') : setIsAuthOpen(true)} />
+        content = <SahayakLanding onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} onViewServices={() => navigate('/dashboard')} />
     }
   }
 

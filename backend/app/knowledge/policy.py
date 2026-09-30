@@ -15,16 +15,16 @@ _AUTHORITATIVE_TERMS = (
 )
 
 _ABSTENTIONS = {
-    "hi-IN": "मैं उपलब्ध आधिकारिक स्रोतों से इस जानकारी की वर्तमान स्थिति सत्यापित नहीं कर सका/सकी। कृपया आधिकारिक पोर्टल से जांचें।",
-    "mr-IN": "उपलब्ध अधिकृत स्रोतांतून ही माहिती सध्या पडताळता आली नाही. कृपया अधिकृत पोर्टलवर तपासा.",
-    "en-IN": "I could not verify the current information from the available official sources. Please check the relevant official portal.",
-    "ta-IN": "கிடைக்கக்கூடிய அதிகாரப்பூர்வ ஆதாரங்களில் இந்தத் தகவலை தற்போது சரிபார்க்க முடியவில்லை. அதிகாரப்பூர்வ தளத்தில் பார்க்கவும்.",
-    "te-IN": "అందుబాటులో ఉన్న అధికారిక మూలాల నుండి ఈ సమాచారాన్ని ప్రస్తుతం ధృవీకరించలేకపోయాను. దయచేసి అధికారిక పోర్టల్‌ను చూడండి.",
-    "kn-IN": "ಲಭ್ಯವಿರುವ ಅಧಿಕೃತ ಮೂಲಗಳಿಂದ ಈ ಮಾಹಿತಿಯನ್ನು ಪ್ರಸ್ತುತ ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಅಧಿಕೃತ ಪೋರ್ಟಲ್ ಪರಿಶೀಲಿಸಿ.",
-    "ml-IN": "ലഭ്യമായ ഔദ്യോഗിക സ്രോതസുകളിൽ നിന്ന് ഈ വിവരം ഇപ്പോൾ സ്ഥിരീകരിക്കാൻ കഴിഞ്ഞില്ല. ദയവായി ഔദ്യോഗിക പോർട്ടൽ പരിശോധിക്കുക.",
-    "gu-IN": "ઉપલબ્ધ સત્તાવાર સ્ત્રોતોમાંથી આ માહિતી હાલમાં ચકાસી શકાઈ નથી. કૃપા કરીને સત્તાવાર પોર્ટલ તપાસો.",
-    "bn-IN": "উপলব্ধ সরকারি উৎস থেকে এই তথ্যটি বর্তমানে যাচাই করা যায়নি। অনুগ্রহ করে সংশ্লিষ্ট সরকারি পোর্টাল দেখুন।",
-    "pa-IN": "ਉਪਲਬਧ ਅਧਿਕਾਰਤ ਸਰੋਤਾਂ ਤੋਂ ਇਸ ਜਾਣਕਾਰੀ ਦੀ ਮੌਜੂਦਾ ਸਥਿਤੀ ਦੀ ਪੁਸ਼ਟੀ ਨਹੀਂ ਹੋ ਸਕੀ। ਕਿਰਪਾ ਕਰਕੇ ਅਧਿਕਾਰਤ ਪੋਰਟਲ ਵੇਖੋ।",
+    "hi-IN": "यह वर्तमान जानकारी अभी सहायाक एआई के ज्ञान आधार में उपलब्ध नहीं है। मैं आपकी स्थिति और जरूरी दस्तावेज़ समझकर आगे की तैयारी में मदद कर सकती हूँ।",
+    "mr-IN": "ही सध्याची माहिती सहायाक एआयच्या ज्ञानसंग्रहात अजून उपलब्ध नाही. तुमची परिस्थिती आणि आवश्यक कागदपत्रे समजून पुढील तयारीत मी मदत करू शकते.",
+    "en-IN": "That current detail is not yet available in Sahayak AI's knowledge base. I can still help you understand your situation and prepare the information or documents needed next.",
+    "ta-IN": "இந்த தற்போதைய விவரம் சஹாயக் ஏஐ அறிவுத் தளத்தில் இன்னும் இல்லை. உங்கள் நிலை மற்றும் அடுத்ததாகத் தேவையான ஆவணங்களைப் புரிந்துகொள்ள நான் உதவ முடியும்.",
+    "te-IN": "ఈ తాజా వివరాలు సహాయక్ ఏఐ జ్ఞాన భాండాగారంలో ఇంకా అందుబాటులో లేవు. మీ పరిస్థితి మరియు తర్వాత అవసరమైన పత్రాలను అర్థం చేసుకోవడంలో నేను సహాయం చేయగలను.",
+    "kn-IN": "ಈ ಪ್ರಸ್ತುತ ವಿವರವು ಸಹಾಯಕ್ ಎಐ ಜ್ಞಾನ ಭಂಡಾರದಲ್ಲಿ ಇನ್ನೂ ಲಭ್ಯವಿಲ್ಲ. ನಿಮ್ಮ ಪರಿಸ್ಥಿತಿ ಮತ್ತು ಮುಂದಿನ ಅಗತ್ಯ ದಾಖಲೆಗಳನ್ನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳಲು ನಾನು ಸಹಾಯ ಮಾಡಬಹುದು.",
+    "ml-IN": "ഈ നിലവിലെ വിശദാംശം സഹായക് എഐയുടെ വിജ്ഞാനശേഖരത്തിൽ ഇതുവരെ ലഭ്യമല്ല. നിങ്ങളുടെ സാഹചര്യംയും അടുത്തതായി വേണ്ട രേഖകളും മനസ്സിലാക്കാൻ എനിക്ക് സഹായിക്കാം.",
+    "gu-IN": "આ વર્તમાન વિગતો સહાયક એઆઇના જ્ઞાન ભંડારમાં હજી ઉપલબ્ધ નથી. તમારી સ્થિતિ અને આગળ જરૂરી દસ્તાવેજો સમજવામાં હું મદદ કરી શકું છું.",
+    "bn-IN": "এই বর্তমান তথ্যটি সহায়ক এআই-এর জ্ঞানভাণ্ডারে এখনও নেই। আপনার অবস্থা এবং পরবর্তী প্রয়োজনীয় নথি বুঝতে আমি সাহায্য করতে পারি।",
+    "pa-IN": "ਇਹ ਮੌਜੂਦਾ ਵੇਰਵਾ ਸਹਾਇਕ ਏਆਈ ਦੇ ਗਿਆਨ ਭੰਡਾਰ ਵਿੱਚ ਹਾਲੇ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਤੁਹਾਡੀ ਸਥਿਤੀ ਅਤੇ ਅੱਗੇ ਲੋੜੀਂਦੇ ਦਸਤਾਵੇਜ਼ ਸਮਝਣ ਵਿੱਚ ਮੈਂ ਮਦਦ ਕਰ ਸਕਦੀ ਹਾਂ।",
 }
 
 
@@ -35,12 +35,27 @@ def requires_verified_evidence(message: str) -> bool:
     return any(term in normalized for term in _AUTHORITATIVE_TERMS)
 
 
-def decide_response(*, message: str, language: str, retrieval: RetrievalResult) -> KnowledgeDecision:
+def decide_response(
+    *,
+    message: str,
+    language: str,
+    retrieval: RetrievalResult,
+    has_reference_document: bool = False,
+) -> KnowledgeDecision:
     """Permit Gemini only where an unsupported answer cannot look authoritative."""
 
     if requires_verified_evidence(message):
         selected = _select_cited_evidence(retrieval)
         if not selected.evidence:
+            if has_reference_document:
+                # A member's attached document is useful for explanation, but
+                # it never becomes an official citation or a claim of current
+                # status. The generation prompt makes that boundary explicit.
+                return KnowledgeDecision(
+                    evidence_status=EvidenceStatus.GENERAL_MODEL_KNOWLEDGE,
+                    retrieval=selected,
+                    requires_abstention=False,
+                )
             return KnowledgeDecision(
                 evidence_status=EvidenceStatus.INSUFFICIENT_EVIDENCE,
                 retrieval=selected,

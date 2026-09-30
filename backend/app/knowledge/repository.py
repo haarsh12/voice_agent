@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Select, func, inspect, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Select, func, inspect, or_, select, update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.knowledge.contracts import DocumentStatus, SourceCheckResult, SourceValidationStatus
@@ -14,6 +15,7 @@ from app.knowledge.models import (
     KnowledgeChunk,
     KnowledgeDocument,
     KnowledgeDocumentVersion,
+    KnowledgeFailedResource,
     KnowledgeSource,
     KnowledgeSourceCheck,
 )
@@ -64,19 +66,31 @@ class KnowledgeRepository:
     async def create_check(self, source_key: str, *, started_at: datetime | None = None) -> KnowledgeSourceCheck | None:
         """Create a source check, or return ``None`` if another worker owns it."""
 
-        check = KnowledgeSourceCheck(
-            id=str(uuid4()),
-            source_key=source_key,
-            started_at=started_at or utc_now(),
-            result=SourceCheckResult.UNCHANGED.value,
-        )
-        self.session.add(check)
-        try:
-            await self.session.flush()
-        except IntegrityError:
-            await self.session.rollback()
-            return None
-        return check
+        # SQLite serializes writes. Development often runs the API and source
+        # worker against one file, so tolerate a short, legitimate writer
+        # overlap instead of crashing a scheduled check. PostgreSQL normally
+        # takes the first path; this retry is a portability safeguard, not a
+        # substitute for its transaction guarantees.
+        for attempt in range(4):
+            check = KnowledgeSourceCheck(
+                id=str(uuid4()),
+                source_key=source_key,
+                started_at=started_at or utc_now(),
+                result=SourceCheckResult.UNCHANGED.value,
+            )
+            self.session.add(check)
+            try:
+                await self.session.flush()
+                return check
+            except IntegrityError:
+                await self.session.rollback()
+                return None
+            except OperationalError as error:
+                await self.session.rollback()
+                if "database is locked" not in str(error).casefold() or attempt == 3:
+                    raise
+                await asyncio.sleep(0.15 * (2**attempt))
+        return None
 
     async def recover_interrupted_checks(
         self,
@@ -115,6 +129,56 @@ class KnowledgeRepository:
                 source.validation_status = SourceValidationStatus.CHECK_FAILED.value
         await self.session.commit()
         return len(unfinished)
+
+    async def record_resource_failure(self, *, source_key: str, canonical_url: str, failure_code: str) -> None:
+        """Keep a bounded, retryable failure record without persisting provider detail."""
+
+        now = utc_now()
+        resource = await self.session.scalar(
+            select(KnowledgeFailedResource).where(
+                KnowledgeFailedResource.source_key == source_key,
+                KnowledgeFailedResource.canonical_url == canonical_url,
+            )
+        )
+        safe_code = failure_code[:96] or "resource_processing_failed"
+        if resource is None:
+            resource = KnowledgeFailedResource(
+                id=str(uuid4()),
+                source_key=source_key,
+                canonical_url=canonical_url,
+                failure_code=safe_code,
+                first_failed_at=now,
+                last_failed_at=now,
+                retry_count=1,
+                next_retry_at=now + timedelta(minutes=5),
+                status="PENDING",
+            )
+            self.session.add(resource)
+        else:
+            resource.failure_code = safe_code
+            resource.last_failed_at = now
+            resource.retry_count = min(resource.retry_count + 1, 32)
+            # Exponential backoff, capped at a day. The next normal source
+            # check may still validate the source's other resources.
+            resource.next_retry_at = now + timedelta(minutes=min(5 * (2 ** (resource.retry_count - 1)), 1_440))
+            resource.status = "PENDING"
+            resource.resolved_at = None
+        await self.session.commit()
+
+    async def resolve_resource_failure(self, *, source_key: str, canonical_url: str) -> None:
+        """Retain a resolved audit record instead of hiding past extraction failures."""
+
+        resource = await self.session.scalar(
+            select(KnowledgeFailedResource).where(
+                KnowledgeFailedResource.source_key == source_key,
+                KnowledgeFailedResource.canonical_url == canonical_url,
+            )
+        )
+        if resource is None or resource.status == "RESOLVED":
+            return
+        resource.status = "RESOLVED"
+        resource.resolved_at = utc_now()
+        await self.session.commit()
 
     async def finish_check(
         self,
@@ -186,6 +250,7 @@ class KnowledgeRepository:
         is_ocr: bool,
         ocr_confidence: float | None,
         source_metadata: dict[str, str],
+        coverage_categories: tuple[str, ...] = (),
         last_modified_at: datetime | None = None,
         publication_at: datetime | None = None,
         effective_at: datetime | None = None,
@@ -202,6 +267,7 @@ class KnowledgeRepository:
         ):
             latest.last_checked_at = now
             latest.source_metadata = source_metadata
+            latest.coverage_categories = _normalized_categories(coverage_categories)
             latest.last_modified_at = last_modified_at or latest.last_modified_at
             return latest, False
 
@@ -255,6 +321,7 @@ class KnowledgeRepository:
             is_ocr=is_ocr,
             ocr_confidence=ocr_confidence,
             source_metadata=source_metadata,
+            coverage_categories=_normalized_categories(coverage_categories),
         )
         self.session.add(version)
         await self.session.flush()
@@ -334,6 +401,60 @@ class KnowledgeRepository:
         rows = list((await self.session.execute(statement)).all())
         return sorted(rows, key=lambda row: ordering[row[0].vector_point_id])
 
+    async def current_chunks_for_text_search(
+        self,
+        search_terms: list[str],
+        *,
+        limit: int,
+    ) -> list[tuple[KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource]]:
+        """Return a small approved corpus slice when vector search is unavailable.
+
+        This is a resilient read-only fallback, not a second source of truth:
+        it searches only CURRENT chunks from approved source groups and still
+        leaves relevance ranking and geographic filtering to retrieval.py.
+        """
+
+        if not search_terms:
+            return []
+        conditions = [KnowledgeChunk.content.ilike(f"%{term}%") for term in search_terms]
+        statement: Select[tuple[KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource]] = (
+            select(KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource)
+            .join(KnowledgeDocumentVersion, KnowledgeDocumentVersion.id == KnowledgeChunk.document_version_id)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+            .join(KnowledgeSource, KnowledgeSource.key == KnowledgeDocument.source_key)
+            .where(
+                KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value,
+                KnowledgeSource.enabled.is_(True),
+                KnowledgeSource.validation_status == SourceValidationStatus.APPROVED.value,
+                or_(*conditions),
+            )
+            .limit(limit)
+        )
+        return list((await self.session.execute(statement)).all())
+
+    async def current_chunks_for_reindex(
+        self,
+        *,
+        source_key: str | None = None,
+    ) -> list[tuple[KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource]]:
+        """Return the durable CURRENT corpus for vector reconciliation.
+
+        The relational store is authoritative: this method intentionally does
+        not use any Qdrant payload to decide whether a chunk is current.
+        """
+
+        statement: Select[tuple[KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource]] = (
+            select(KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument, KnowledgeSource)
+            .join(KnowledgeDocumentVersion, KnowledgeDocumentVersion.id == KnowledgeChunk.document_version_id)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+            .join(KnowledgeSource, KnowledgeSource.key == KnowledgeDocument.source_key)
+            .where(KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value)
+            .order_by(KnowledgeDocument.source_key, KnowledgeDocument.canonical_url, KnowledgeChunk.ordinal)
+        )
+        if source_key is not None:
+            statement = statement.where(KnowledgeDocument.source_key == source_key)
+        return list((await self.session.execute(statement)).all())
+
     async def admin_dashboard_snapshot(self, *, recent_document_limit: int = 30) -> dict[str, object]:
         """Return non-sensitive, operational metadata for the admin dashboard.
 
@@ -393,6 +514,51 @@ class KnowledgeRepository:
                 )
                 or 0
             )
+            failed_resource_count = int(
+                await self.session.scalar(
+                    select(func.count())
+                    .select_from(KnowledgeFailedResource)
+                    .where(
+                        KnowledgeFailedResource.source_key == source.key,
+                        KnowledgeFailedResource.status == "PENDING",
+                    )
+                )
+                or 0
+            )
+            coverage_rows = list(
+                (
+                    await self.session.scalars(
+                        select(KnowledgeDocumentVersion.coverage_categories)
+                        .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+                        .join(KnowledgeChunk, KnowledgeChunk.document_version_id == KnowledgeDocumentVersion.id)
+                        .where(
+                            KnowledgeDocument.source_key == source.key,
+                            KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value,
+                        )
+                    )
+                ).all()
+            )
+            expected_categories = _normalized_categories(tuple(source.expected_categories))
+            covered_categories = tuple(
+                sorted(
+                    {
+                        category
+                        for categories in coverage_rows
+                        if isinstance(categories, list)
+                        for category in _normalized_categories(tuple(categories))
+                    }
+                )
+            )
+            missing_categories = tuple(category for category in expected_categories if category not in covered_categories)
+            coverage_state = (
+                "COMPLETE"
+                if expected_categories and not missing_categories
+                else "PARTIAL"
+                if covered_categories
+                else "INCOMPLETE"
+                if expected_categories
+                else "UNKNOWN"
+            )
             latest_check = await self.session.scalar(
                 select(KnowledgeSourceCheck)
                 .where(KnowledgeSourceCheck.source_key == source.key)
@@ -407,6 +573,12 @@ class KnowledgeRepository:
                     "geographic_scope": source.geographic_scope,
                     "approved_domains": list(source.approved_domains),
                     "entry_urls": list(source.entry_urls),
+                    "expected_categories": list(expected_categories),
+                    "covered_categories": list(covered_categories),
+                    "missing_categories": list(missing_categories),
+                    "coverage_state": coverage_state,
+                    "ingestion_state": "INGESTED" if source_chunks else "NOT_INGESTED",
+                    "failed_resource_count": failed_resource_count,
                     "enabled": source.enabled,
                     "validation_status": source.validation_status,
                     "check_interval_hours": source.check_interval_hours,
@@ -476,6 +648,7 @@ def _source_values(definition: ApprovedSourceDefinition) -> dict[str, object]:
         "check_interval_hours": definition.check_interval_hours,
         "approved_domains": list(definition.approved_domains),
         "entry_urls": list(definition.entry_urls),
+        "expected_categories": list(definition.expected_categories),
         "discovery_path_prefixes": list(definition.discovery_path_prefixes),
         "max_documents_per_check": definition.max_documents_per_check,
         "enabled": definition.enabled,
@@ -496,3 +669,9 @@ def _optional_string(value: object, max_length: int) -> str | None:
 
 def _optional_int(value: object) -> int | None:
     return value if isinstance(value, int) and value >= 0 else None
+
+
+def _normalized_categories(categories: tuple[object, ...]) -> list[str]:
+    """Keep only bounded reviewed category identifiers in audit metadata."""
+
+    return sorted({item.strip()[:96] for item in categories if isinstance(item, str) and item.strip()})

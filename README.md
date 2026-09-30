@@ -119,7 +119,7 @@ a model-generated official-looking answer.
 
 ### Deploying the knowledge engine
 
-1. Apply [20260928_add_verified_knowledge_engine.sql](/D:/voice_stream/supabase/migrations/20260928_add_verified_knowledge_engine.sql) after the existing account migrations.
+1. Apply [20260928_add_verified_knowledge_engine.sql](/D:/voice_stream/supabase/migrations/20260928_add_verified_knowledge_engine.sql) and then [20260929_add_knowledge_coverage_metadata.sql](/D:/voice_stream/supabase/migrations/20260929_add_knowledge_coverage_metadata.sql) after the existing account migrations.
 2. Configure `QDRANT_URL`, optional `QDRANT_API_KEY`,
    `QDRANT_COLLECTION`, `GOOGLE_APPLICATION_CREDENTIALS`, and
    `KNOWLEDGE_EMBEDDING_MODEL` in the backend deployment secret store. To OCR
@@ -136,12 +136,36 @@ a model-generated official-looking answer.
    conditional requests when ETag/Last-Modified metadata exists and only
    chunks, embeds, and indexes changed document hashes. An operator can run
    one reviewed source explicitly with `-m app.knowledge.cli --source pmfby`.
+   Use `-m app.knowledge.cli --reconcile` after a Qdrant incident to repair
+   only missing or stale derived vector points, or `--reindex-source pmfby`
+   after an approved embedding-model change.
 
 Qdrant credentials, source content, ingestion diagnostics, and database
 records remain server-side. The browser receives only the answer, its evidence
 status, and citation metadata needed to open the source document. LiveKit voice
 turns use the same retrieval path; the agent never speaks citations or URLs,
 while the browser displays verified source links underneath the voice reply.
+
+### Knowledge Base and administrator access
+
+`/knowledge-base` is a public transparency view. It lists the reviewed source
+registry, official entry links, update outcomes, document-version metadata,
+extraction method, and safe aggregate index counts. Its API deliberately
+excludes document text, chunks, embeddings, hashes, database details, provider
+endpoints, credentials, and member data. The endpoint is rate-limited and its
+Qdrant readiness probe is cached briefly so the page cannot become an index
+probing surface.
+
+`/admin` is a separate, rate-limited administrator sign-in only. It has an
+independent HttpOnly, SameSite cookie and CSRF-protected logout. Configure an
+Argon2id `ADMIN_PASSWORD_HASH` in the deployment secret store; never store or
+commit the administrator password. Private administration tools can be added
+behind this boundary in a later release.
+
+The desktop voice workspace grows naturally while the conversation is short,
+then caps its transcript card at two viewport lengths. Further entries scroll
+inside that card without forcing the full page to grow or interrupting a
+member who has scrolled back through the conversation.
 
 ## Run locally
 

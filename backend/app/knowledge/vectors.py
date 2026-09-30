@@ -144,6 +144,8 @@ class QdrantVectorStore:
             "district",
             "language",
             "scheme_key",
+            "document_type",
+            "chunk_type",
         ):
             self._request(
                 "PUT",
@@ -224,6 +226,52 @@ class QdrantVectorStore:
             json={"payload": {"document_status": status}, "points": list(point_ids)},
             expected={200},
         )
+
+    def existing_point_ids(self, *, filters: dict[str, str] | None = None) -> set[str]:
+        """Enumerate bounded point identifiers for an operational repair job.
+
+        Qdrant remains a derived index. The worker uses this only to compare
+        payload identifiers against the relational CURRENT corpus; it never
+        treats returned payload text or metadata as a source of truth.
+        """
+
+        self._require_safe_endpoint()
+        point_ids: set[str] = set()
+        offset: str | int | None = None
+        # The collection only contains this service's chunks. A fixed page
+        # size keeps memory and provider response sizes bounded even if the
+        # index grows substantially.
+        while True:
+            must = [{"key": key, "match": {"value": value}} for key, value in (filters or {}).items()]
+            body: dict[str, object] = {
+                "limit": 256,
+                "with_payload": False,
+                "with_vector": False,
+            }
+            if must:
+                body["filter"] = {"must": must}
+            if offset is not None:
+                body["offset"] = offset
+            response = self._request(
+                "POST",
+                f"/collections/{self.settings.qdrant_collection}/points/scroll",
+                json=body,
+                expected={200},
+            )
+            try:
+                result = response.json()["result"]
+                points = result["points"]
+                next_offset = result.get("next_page_offset")
+                if not isinstance(points, list):
+                    raise TypeError("scroll points are not a list")
+                point_ids.update(str(point["id"]) for point in points)
+            except (KeyError, TypeError, ValueError) as error:
+                raise VectorStoreError("qdrant_scroll_response_invalid") from error
+            if next_offset is None:
+                return point_ids
+            if next_offset == offset:
+                raise VectorStoreError("qdrant_scroll_response_invalid")
+            offset = next_offset
 
     def count(self) -> int:
         """Return the collection's approximate point count for admin health only."""

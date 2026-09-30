@@ -17,7 +17,12 @@ from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.registry import SOURCES_BY_KEY
 
 
-async def _run(source_key: str | None) -> int:
+async def _run(
+    source_key: str | None,
+    *,
+    reconcile: bool = False,
+    reindex_source: str | None = None,
+) -> int:
     settings = get_settings()
     session_factory = get_session_factory()
     engine = get_engine()
@@ -32,7 +37,20 @@ async def _run(source_key: str | None) -> int:
         await ensure_development_auth_schema(engine)
     async with session_factory() as session:
         service = KnowledgeIngestionService(session, settings)
-        if source_key:
+        if reconcile:
+            await service.repository.sync_source_registry()
+            report = await service.reconcile_current_vectors()
+            logging.info(
+                "knowledge_vector_reconciliation_complete current=%s repaired=%s retired=%s",
+                report.current_records,
+                report.repaired_missing,
+                report.retired_stale,
+            )
+        elif reindex_source:
+            await service.repository.sync_source_registry()
+            count = await service.reindex_current_source(reindex_source)
+            logging.info("knowledge_source_reindex_complete source=%s chunks=%s", reindex_source, count)
+        elif source_key:
             await service.repository.sync_source_registry()
             recovered = await service.repository.recover_interrupted_checks()
             if recovered:
@@ -57,8 +75,19 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(description="Run due Sahayak verified-knowledge source checks.")
     parser.add_argument("--source", choices=sorted(SOURCES_BY_KEY), help="Check one reviewed source immediately.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--reconcile", action="store_true", help="Repair missing/stale Qdrant CURRENT points from the audit store.")
+    group.add_argument("--reindex-source", choices=sorted(SOURCES_BY_KEY), help="Force one reviewed source's CURRENT chunks back into Qdrant.")
     arguments = parser.parse_args()
-    raise SystemExit(asyncio.run(_run(arguments.source)))
+    raise SystemExit(
+        asyncio.run(
+            _run(
+                arguments.source,
+                reconcile=arguments.reconcile,
+                reindex_source=arguments.reindex_source,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":

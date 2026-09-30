@@ -38,23 +38,27 @@ export type AdminSession = {
   authenticated: boolean
 }
 
-export type AdminKnowledgeCheck = {
+export type KnowledgeBaseCheck = {
   started_at: string
   completed_at: string | null
   result: 'UNCHANGED' | 'CHANGED' | 'PARTIAL_FAILURE' | 'FAILED'
   checked_documents: number
   changed_documents: number
-  failure_code: string | null
 }
 
-export type AdminKnowledgeSource = {
+export type KnowledgeBaseSource = {
   key: string
   name: string
   category: string
   geographic_scope: string
   approved_domains: string[]
   entry_urls: string[]
-  enabled: boolean
+  expected_categories: string[]
+  covered_categories: string[]
+  missing_categories: string[]
+  coverage_state: 'COMPLETE' | 'PARTIAL' | 'INCOMPLETE' | 'UNKNOWN'
+  ingestion_state: 'INGESTED' | 'NOT_INGESTED'
+  failed_resource_count: number
   validation_status: 'APPROVED' | 'DISABLED' | 'CHECK_FAILED' | 'REVIEW_REQUIRED'
   check_interval_hours: number
   last_successful_check_at: string | null
@@ -62,10 +66,10 @@ export type AdminKnowledgeSource = {
   last_successful_ingestion_at: string | null
   current_document_count: number
   chunk_count: number
-  latest_check: AdminKnowledgeCheck | null
+  latest_check: KnowledgeBaseCheck | null
 }
 
-export type AdminKnowledgeDocument = {
+export type KnowledgeBaseDocument = {
   source_key: string
   source_name: string
   title: string
@@ -78,10 +82,9 @@ export type AdminKnowledgeDocument = {
   is_ocr: boolean
 }
 
-export type AdminKnowledgeDashboard = {
+export type KnowledgeBaseStatus = {
   generated_at: string
   storage: {
-    relational_database: 'connected'
     vector_index: 'connected' | 'not_configured' | 'unavailable'
     vector_point_count: number | null
     source_count: number
@@ -89,8 +92,8 @@ export type AdminKnowledgeDashboard = {
     current_document_count: number
     chunk_count: number
   }
-  sources: AdminKnowledgeSource[]
-  recent_documents: AdminKnowledgeDocument[]
+  sources: KnowledgeBaseSource[]
+  recent_documents: KnowledgeBaseDocument[]
 }
 
 export const USER_TYPES = [

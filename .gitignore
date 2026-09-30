@@ -26,6 +26,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+# The generic Python build-directory rule above must not hide source modules
+# used by the Vite client.
+!frontend/src/lib/
+!frontend/src/lib/*.ts
 lib64/
 parts/
 sdist/
