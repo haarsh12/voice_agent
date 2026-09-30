@@ -10,4 +10,4 @@ echo Backend virtual environment activated
 echo Starting server on http://localhost:8000
 echo API docs will be at http://localhost:8000/docs
 echo.
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000

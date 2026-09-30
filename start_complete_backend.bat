@@ -14,7 +14,7 @@ cd backend
 call .venv\Scripts\activate.bat
 
 echo [1/2] Starting FastAPI backend server...
-start "Sahayak AI Backend API" cmd /k "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
+start "Sahayak AI Backend API" cmd /k "uvicorn app.main:app --reload --reload-dir app --host 0.0.0.0 --port 8000"
 
 timeout /t 3 /nobreak > nul
 

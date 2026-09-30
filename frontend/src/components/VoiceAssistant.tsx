@@ -376,17 +376,17 @@ export function VoiceAssistant({
   }[serviceReadiness]
 
   function friendlyConnectionError(caughtError: unknown): string {
-    const message = caughtError instanceof Error ? caughtError.message : ''
+    const message = caughtError instanceof Error ? caughtError.message : String(caughtError)
     if (/503|token service is not configured/i.test(message)) {
-      return 'LiveKit credentials are missing from the server environment. Configure the token API, then try again.'
-    }
-    if (/failed to fetch|networkerror|network request failed/i.test(message)) {
-      return 'The local voice API cannot be reached. Start FastAPI on port 8000, then try again.'
+      return 'LiveKit credentials are missing from the server environment. Configure LIVEKIT_URL and keys in backend/.env.'
     }
     if (/agent.*timeout|agent.*not.*available/i.test(message)) {
-      return 'Connected to LiveKit, but the Sahayak AI voice worker is not available yet. Start the agent worker and try again.'
+      return 'Connected to LiveKit, but the voice worker is not active. Start the agent worker in terminal.'
     }
-    return 'Unable to start the voice session. Check the service status below and try again.'
+    if (/failed to fetch|networkerror|network request failed|websocket|connection failed|could not connect/i.test(message)) {
+      return 'Could not connect to LiveKit server. Configure your valid LIVEKIT_URL in backend/.env.'
+    }
+    return 'Unable to start the voice session. Please check backend logs and try again.'
   }
 
   async function selectLanguage(language: SupportedLanguage): Promise<void> {
