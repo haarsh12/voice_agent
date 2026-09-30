@@ -11,6 +11,7 @@ from app.auth.routes import router as auth_router
 from app.config.settings import get_settings
 from app.core.logging import configure_logging
 from app.knowledge.routes import router as knowledge_router
+from app.grievances.routes import router as grievances_router
 from app.schemes.routes import router as schemes_router
 
 settings = get_settings()
@@ -38,6 +39,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(knowledge_router)
 app.include_router(schemes_router)
+app.include_router(grievances_router)
 
 
 if __name__ == "__main__":

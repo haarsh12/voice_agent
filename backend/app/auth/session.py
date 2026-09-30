@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from app.auth.models import AuthBase
+import app.grievances.models  # noqa: F401 - register grievance tables in local development
 # Register the knowledge tables on the same server-owned metadata. Importing
 # the models here is intentional: local development schema creation must not
 # omit the knowledge audit tables while production stays migration-owned.

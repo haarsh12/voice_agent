@@ -12,6 +12,7 @@ import {
   MicOff,
   RefreshCw,
   RotateCcw,
+  ShieldCheck,
   Volume2,
   WifiOff,
 } from 'lucide-react'
@@ -51,6 +52,7 @@ const microphoneConstraints = {
 const languageControlTopic = 'sahayak.language.v1'
 const contextControlTopic = 'sahayak.context.v1'
 const citationControlTopic = 'sahayak.citations.v1'
+const grievanceControlTopic = 'sahayak.grievances.v1'
 const internalVoiceTagPattern = /<\s*(?:analysis|reasoning|thought|thinking)\b[^>]*>[\s\S]*?(?:<\s*\/\s*(?:analysis|reasoning|thought|thinking)\s*>|$)/gi
 
 function cleanAssistantTranscript(text: string): string {
@@ -159,6 +161,7 @@ export function VoiceAssistant({
   const [transcriptEntries, setTranscriptEntries] = useState<TranscriptEntry[]>([])
   const [isSendingText, setIsSendingText] = useState(false)
   const [isResettingSession, setIsResettingSession] = useState(false)
+  const [grievanceSaved, setGrievanceSaved] = useState(false)
   const interruptionTimeout = useRef<number | undefined>(undefined)
   const languageUpdateTimeout = useRef<number | undefined>(undefined)
   const lastConfirmedLanguage = useRef<SupportedLanguage>(selectedLanguage)
@@ -192,11 +195,16 @@ export function VoiceAssistant({
       _kind?: unknown,
       topic?: string,
     ) => {
-      if (topic !== languageControlTopic && topic !== citationControlTopic) return
+      if (topic !== languageControlTopic && topic !== citationControlTopic && topic !== grievanceControlTopic) return
       if (agent.identity && participant?.identity !== agent.identity) return
 
       try {
         const data: unknown = JSON.parse(new TextDecoder().decode(payload))
+        if (topic === grievanceControlTopic) {
+          if (!data || typeof data !== 'object' || !('type' in data) || data.type !== 'grievance_update' || !('grievance_id' in data) || typeof data.grievance_id !== 'string' || !/^SAH-GRV-[A-F0-9]{12}$/.test(data.grievance_id)) return
+          setGrievanceSaved(true)
+          return
+        }
         if (topic === citationControlTopic) {
           const evidence = parseVoiceEvidenceUpdate(data)
           if (!evidence) return
@@ -347,6 +355,7 @@ export function VoiceAssistant({
     // disconnect; this resets the locally rendered text history at once.
     setTranscriptEntries([])
     pendingVoiceEvidence.current.clear()
+    setGrievanceSaved(false)
   }, [guestSession?.session_id])
 
   const agentFailure = agent.state === 'failed' ? agent.failureReasons.join(' ') : null
@@ -644,6 +653,7 @@ export function VoiceAssistant({
               <span>{error || agentFailure}</span>
             </div>
           )}
+          {grievanceSaved && <div className="voice-grievance-notice" role="status"><ShieldCheck size={18} /><span>Your grievance draft was updated privately. <a href="/grievances">Open grievance workspace</a></span></div>}
         </section>
 
         <TranscriptPanel

@@ -110,6 +110,10 @@ class GuestSessionSnapshot:
     history: tuple[GuestTurn, ...]
     documents: tuple[ExtractedDocument, ...]
     member_profile: MemberProfile | None = None
+    # This is never rendered into model context or returned to a browser. It
+    # crosses only the capability-protected local worker boundary, where voice
+    # tools apply the same account ownership checks as the HTTP APIs.
+    account_id: int | None = None
 
     def render_context(self, *, max_characters: int) -> str:
         """Render recent history and useful document excerpts within a hard bound.
@@ -190,6 +194,7 @@ class _GuestSession:
     turns: deque[GuestTurn] = field(default_factory=deque)
     documents: deque[ExtractedDocument] = field(default_factory=deque)
     member_profile: MemberProfile | None = None
+    account_id: int | None = None
 
 
 class GuestSessionStore:
@@ -224,6 +229,7 @@ class GuestSessionStore:
                 history=tuple(session.turns),
                 documents=tuple(session.documents),
                 member_profile=session.member_profile,
+                account_id=session.account_id,
             )
 
     def set_member_profile(
@@ -237,6 +243,7 @@ class GuestSessionStore:
         village_or_town: object = None,
         user_type: object = None,
         cooperative_role: object = None,
+        account_id: object = None,
     ) -> None:
         """Attach server-verified account context to this ephemeral session.
 
@@ -255,6 +262,9 @@ class GuestSessionStore:
         with self._lock:
             session = self._authorize_locked(session_id, secret)
             session.member_profile = profile
+            # This comes only from a backend account lookup. Invalid values
+            # are ignored instead of becoming a usable voice identity.
+            session.account_id = account_id if isinstance(account_id, int) and account_id > 0 else None
 
     def append_turn(self, session_id: str, secret: str, *, role: str, text: str, source: str) -> None:
         """Store one bounded final turn, deduplicating immediate repeats."""

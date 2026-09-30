@@ -61,6 +61,90 @@ export type SchemeFilters = {
   types: string[]
 }
 
+export const GRIEVANCE_STATUSES = [
+  'DRAFT', 'READY_FOR_CONFIRMATION', 'USER_CONFIRMED', 'SUBMITTING',
+  'SUBMITTED', 'ACKNOWLEDGED', 'UNDER_PROCESS', 'ACTION_REQUIRED',
+  'RESOLVED', 'CLOSED', 'ESCALATED', 'APPEAL_AVAILABLE',
+  'APPEAL_SUBMITTED', 'SUBMISSION_FAILED', 'UNKNOWN',
+] as const
+
+export type GrievanceStatus = (typeof GRIEVANCE_STATUSES)[number]
+
+export const GRIEVANCE_CATEGORIES = [
+  'PACS_ISSUE', 'COOPERATIVE_SOCIETY', 'PAYMENT', 'LOAN', 'INSURANCE_CLAIM',
+  'GOVERNMENT_SCHEME', 'AGRICULTURE_SERVICE', 'FINANCIAL_SERVICE',
+  'DOCUMENT_CERTIFICATE', 'ADMINISTRATIVE', 'OTHER_GOVERNMENT',
+] as const
+
+export type GrievanceCategory = (typeof GRIEVANCE_CATEGORIES)[number]
+
+export type GrievanceEvent = {
+  event_type: string
+  from_status: GrievanceStatus | null
+  to_status: GrievanceStatus | null
+  actor: 'MEMBER' | 'SYSTEM' | 'ADMIN' | 'OFFICIAL_SYNC'
+  created_at: string
+  message: string
+}
+
+export type Grievance = {
+  id: string
+  status: GrievanceStatus
+  category: GrievanceCategory
+  subject: string | null
+  description: string | null
+  original_language: string | null
+  organization: string | null
+  state: string | null
+  district: string | null
+  locality: string | null
+  incident_date: string | null
+  amount_description: string | null
+  has_contacted_organization: boolean | null
+  prior_reference: string | null
+  authority_name: string | null
+  destination_name: string | null
+  destination_url: string | null
+  official_tracking_url: string | null
+  routing_reason: string | null
+  submission_method: 'PORTAL_HANDOFF' | null
+  official_reference: string | null
+  official_reference_source: 'MEMBER_REPORTED' | null
+  created_at: string
+  updated_at: string
+  confirmed_at: string | null
+  handoff_opened_at: string | null
+  submitted_at: string | null
+  acknowledged_at: string | null
+  last_status_checked_at: string | null
+  status_changed_at: string
+  version: number
+  missing_fields: string[]
+  events: GrievanceEvent[]
+}
+
+export type GrievanceListResponse = {
+  items: Grievance[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export type GrievanceDraftInput = {
+  category?: GrievanceCategory
+  subject?: string | null
+  description?: string | null
+  original_language?: string | null
+  organization?: string | null
+  state?: string | null
+  district?: string | null
+  locality?: string | null
+  incident_date?: string | null
+  amount_description?: string | null
+  has_contacted_organization?: boolean | null
+  prior_reference?: string | null
+}
+
 export type EvidenceStatus =
   | 'VERIFIED_SOURCE'
   | 'MULTIPLE_VERIFIED_SOURCES'

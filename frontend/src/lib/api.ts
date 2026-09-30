@@ -12,6 +12,10 @@ import type {
   SchemeDetail,
   SchemeFilters,
   SchemeSearchResponse,
+  Grievance,
+  GrievanceDraftInput,
+  GrievanceListResponse,
+  GrievanceStatus,
 } from '../types/api'
 import type { ServerWebAuthnOptions, WebAuthnCredentialJSON } from './webauthn'
 
@@ -100,6 +104,54 @@ export function getSchemeFilters(): Promise<SchemeFilters> {
 
 export function getSchemeDetail(identifier: string): Promise<SchemeDetail> {
   return request<SchemeDetail>(`/api/schemes/${encodeURIComponent(identifier)}`)
+}
+
+export function getGrievances(params: { state?: GrievanceStatus; query?: string } = {}): Promise<GrievanceListResponse> {
+  const query = new URLSearchParams()
+  if (params.state) query.set('state', params.state)
+  if (params.query?.trim()) query.set('query', params.query.trim())
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return request<GrievanceListResponse>(`/api/grievances${suffix}`)
+}
+
+export function getGrievance(id: string): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}`)
+}
+
+export function createGrievance(payload: GrievanceDraftInput): Promise<Grievance> {
+  return request<Grievance>('/api/grievances', {
+    method: 'POST', headers: csrfHeaders(), body: JSON.stringify(payload),
+  })
+}
+
+export function updateGrievance(id: string, version: number, payload: GrievanceDraftInput): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}`, {
+    method: 'PUT', headers: csrfHeaders(), body: JSON.stringify({ ...payload, version }),
+  })
+}
+
+export function readyGrievance(id: string, version: number): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}/ready`, {
+    method: 'POST', headers: csrfHeaders(), body: JSON.stringify({ version }),
+  })
+}
+
+export function confirmGrievance(id: string, version: number): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}/confirm`, {
+    method: 'POST', headers: csrfHeaders(), body: JSON.stringify({ version, confirmed: true }),
+  })
+}
+
+export function recordOfficialHandoff(id: string, version: number): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}/official-handoff`, {
+    method: 'POST', headers: csrfHeaders(), body: JSON.stringify({ version }),
+  })
+}
+
+export function recordOfficialReference(id: string, version: number, officialReference: string): Promise<Grievance> {
+  return request<Grievance>(`/api/grievances/${encodeURIComponent(id)}/official-reference`, {
+    method: 'POST', headers: csrfHeaders(), body: JSON.stringify({ version, official_reference: officialReference }),
+  })
 }
 
 function adminCsrfHeaders(): HeadersInit {

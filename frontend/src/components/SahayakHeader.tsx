@@ -16,6 +16,7 @@ const NAVIGATION: Array<{ label: string; route: AppRoute; protected?: boolean }>
   { label: 'Ask Sahayak', route: '/voice' },
   { label: 'Services', route: '/dashboard' },
   { label: 'Schemes', route: '/schemes' },
+  { label: 'Grievances', route: '/grievances', protected: true },
   { label: 'Knowledge Base', route: '/knowledge-base' },
   { label: 'Admin', route: '/admin' },
 ]

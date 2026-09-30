@@ -29,6 +29,7 @@ class VoiceGuestContext:
     context: str
     user_context: UserKnowledgeContext | None = None
     has_reference_documents: bool = False
+    account_id: int | None = None
 
 
 def _request_json(
@@ -89,11 +90,15 @@ async def fetch_guest_context(
     has_reference_documents = response.get("has_reference_documents", False) if response else False
     if not isinstance(has_reference_documents, bool):
         raise GuestSessionClientError("Guest session document context is invalid.")
+    account_id = response.get("account_id") if response else None
+    if account_id is not None and (not isinstance(account_id, int) or account_id <= 0):
+        raise GuestSessionClientError("Guest session account context is invalid.")
     raw_knowledge_context = response.get("knowledge_context") if response else None
     if raw_knowledge_context is None:
         return VoiceGuestContext(
             context=context,
             has_reference_documents=has_reference_documents,
+            account_id=account_id,
         )
     if not isinstance(raw_knowledge_context, dict):
         raise GuestSessionClientError("Guest session profile context is invalid.")
@@ -107,6 +112,7 @@ async def fetch_guest_context(
             cooperative_role=_context_value(raw_knowledge_context, "cooperative_role", 120),
         ),
         has_reference_documents=has_reference_documents,
+        account_id=account_id,
     )
 
 

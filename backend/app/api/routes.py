@@ -146,6 +146,9 @@ class GuestContextResponse(BaseModel):
     context: str
     knowledge_context: VoiceKnowledgeContext | None = None
     has_reference_documents: bool = False
+    # Internal worker-only data; this router is protected by the ephemeral
+    # guest capability and never called by the browser.
+    account_id: int | None = None
 
 
 class VoiceTurnRequest(BaseModel):
@@ -194,6 +197,7 @@ def _bind_account_profile_to_guest_session(
         village_or_town=getattr(account, "village_or_town", None),
         user_type=getattr(account, "user_type", None),
         cooperative_role=getattr(account, "cooperative_role", None),
+        account_id=getattr(account, "id", None),
     )
 
 
@@ -276,6 +280,7 @@ async def get_voice_guest_context(session_id: str, request: Request) -> GuestCon
         context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
         knowledge_context=knowledge_context,
         has_reference_documents=bool(snapshot.documents),
+        account_id=snapshot.account_id,
     )
 
 

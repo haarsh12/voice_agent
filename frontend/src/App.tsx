@@ -4,7 +4,8 @@ import { AccessGate } from './components/AccessGate'
 import { AdminAccessPanel } from './components/AdminAccessPanel'
 import { AuthModal } from './components/AuthModal'
 import { Onboarding } from './components/Onboarding'
-import { Dashboard, DocumentsView, GrievancesView, NotificationsView, ProfileView, SchemesView } from './components/PortalViews'
+import { Dashboard, DocumentsView, NotificationsView, ProfileView, SchemesView } from './components/PortalViews'
+import { GrievanceCenter } from './components/GrievanceCenter'
 import { SahayakHeader } from './components/SahayakHeader'
 import { SahayakLanding } from './components/SahayakLanding'
 import { KnowledgeBasePanel } from './components/KnowledgeBasePanel'
@@ -75,7 +76,7 @@ function App() {
         content = <SchemesView onTalk={() => navigate('/voice')} profile={auth.user} />
         break
       case '/grievances':
-        content = auth.user ? <GrievancesView /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Grievance support" />
+        content = auth.user ? <GrievanceCenter onTalk={() => navigate('/voice')} profile={auth.user} /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Grievance support" />
         break
       case '/notifications':
         content = auth.user ? <NotificationsView /> : <AccessGate onOpenAuth={() => setIsAuthOpen(true)} onTalk={() => navigate('/voice')} title="Notifications" />

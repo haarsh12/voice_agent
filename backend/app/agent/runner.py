@@ -7,12 +7,13 @@ import json
 import logging
 import re
 from collections import deque
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from fastapi import HTTPException
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -20,11 +21,13 @@ from livekit.agents import (
     JobContext,
     TurnHandlingOptions,
     cli,
+    function_tool,
     inference,
     llm,
     room_io,
 )
 from livekit.plugins import ai_coustics
+from sqlalchemy import select
 
 from app.agent.languages import LANGUAGE_NAMES, normalize_language
 from app.agent.prompts import build_voice_assistant_instructions
@@ -35,7 +38,8 @@ from app.agent.providers import (
     update_stt_language,
     update_tts_language,
 )
-from app.auth.session import ensure_development_auth_schema, get_engine
+from app.auth.session import ensure_development_auth_schema, get_engine, get_session_factory
+from app.auth.models import Account
 from app.config.settings import MissingConfigurationError, get_settings
 from app.core.logging import configure_logging
 from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
@@ -45,12 +49,24 @@ from app.services.guest_session_client import (
     append_voice_turn,
     fetch_guest_context,
 )
+from app.grievances.lifecycle import GrievanceStatus
+from app.grievances.models import Grievance
+from app.grievances.schemas import GrievanceCreateRequest, GrievanceDraftInput
+from app.grievances.service import (
+    confirm as confirm_grievance,
+    create_draft as create_grievance_draft,
+    missing_fields,
+    prepare_confirmation,
+    serialize as serialize_grievance,
+    update_draft as update_grievance_draft,
+)
 
 _BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
 _PROJECT_DIRECTORY = _BACKEND_DIRECTORY.parent
 _LANGUAGE_CONTROL_TOPIC = "sahayak.language.v1"
 _CONTEXT_CONTROL_TOPIC = "sahayak.context.v1"
 _CITATION_CONTROL_TOPIC = "sahayak.citations.v1"
+_GRIEVANCE_CONTROL_TOPIC = "sahayak.grievances.v1"
 _MAX_LANGUAGE_CONTROL_BYTES = 256
 _VOICE_TAG_PATTERN = re.compile(r"<\s*(/?)\s*([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>")
 _INTERNAL_VOICE_TAGS = frozenset({"analysis", "reasoning", "thought", "thinking"})
@@ -104,6 +120,8 @@ class SahayakAssistant(Agent):
         guest_context: str = "",
         user_context: UserKnowledgeContext | None = None,
         has_reference_documents: bool = False,
+        account_id: int | None = None,
+        on_grievance_updated: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         super().__init__(
             instructions=build_voice_assistant_instructions(
@@ -114,6 +132,8 @@ class SahayakAssistant(Agent):
         self._knowledge_service = knowledge_service
         self._user_context = user_context
         self._has_reference_documents = has_reference_documents
+        self._account_id = account_id
+        self._on_grievance_updated = on_grievance_updated
         self._citation_updates: deque[VoiceCitationUpdate] = deque(maxlen=8)
 
     def set_active_language(self, language: str) -> None:
@@ -140,6 +160,235 @@ class SahayakAssistant(Agent):
         """Allow explanation of a session document without treating it as policy."""
 
         self._has_reference_documents = has_reference_documents
+
+    def set_account_id(self, account_id: int | None) -> None:
+        """Set only server-bound member identity received via local capability."""
+
+        self._account_id = account_id
+
+    async def _account_and_draft(self, *, statuses: set[str]) -> tuple[Account, Grievance] | None:
+        """Load the current member and most-recent matching draft server-side."""
+
+        if self._account_id is None:
+            return None
+        factory = get_session_factory()
+        if factory is None:
+            return None
+        async with factory() as session:
+            account = await session.get(Account, self._account_id)
+            if account is None or not account.is_active:
+                return None
+            grievance = await session.scalar(
+                select(Grievance)
+                .where(Grievance.account_id == account.id, Grievance.status.in_(statuses))
+                .order_by(Grievance.updated_at.desc())
+                .limit(1)
+            )
+            if grievance is None:
+                return None
+            # The session ends before callers mutate; callers fetch again in
+            # their own transaction so there is no cross-session mutation.
+            return account, grievance
+
+    async def _notify_grievance(self, grievance_id: str) -> None:
+        if self._on_grievance_updated is not None:
+            await self._on_grievance_updated(grievance_id)
+
+    @function_tool()
+    async def create_grievance_draft(
+        self,
+        description: str,
+        subject: str | None = None,
+        organization: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, object]:
+        """Save an editable grievance draft for the signed-in member.
+
+        Use only when the member explicitly asks to file, save, or prepare a
+        grievance draft. Copy only facts the member has directly said; never
+        infer dates, money, authorities, evidence, or a confirmation. This
+        never sends a complaint to an authority.
+        """
+
+        if self._account_id is None:
+            return {"saved": False, "message": "Sign in is required to save a grievance draft."}
+        try:
+            payload = GrievanceCreateRequest(
+                description=description,
+                subject=subject,
+                organization=organization,
+                state=state,
+            )
+        except Exception:
+            return {"saved": False, "message": "I need a short factual description to save a draft."}
+        factory = get_session_factory()
+        if factory is None:
+            return {"saved": False, "message": "Grievance saving is unavailable right now."}
+        async with factory() as session:
+            account = await session.get(Account, self._account_id)
+            if account is None or not account.is_active:
+                return {"saved": False, "message": "Your signed-in account is unavailable."}
+            grievance = await create_grievance_draft(session, account, payload)
+            response = await serialize_grievance(session, grievance, include_events=False)
+        await self._notify_grievance(response.id)
+        return {
+            "saved": True,
+            "missing_information": response.missing_fields,
+            "message": "An editable draft is saved in the grievance workspace. It has not been submitted.",
+        }
+
+    @function_tool()
+    async def update_latest_grievance_draft(
+        self,
+        subject: str | None = None,
+        description: str | None = None,
+        organization: str | None = None,
+        state: str | None = None,
+        district: str | None = None,
+        incident_date: str | None = None,
+        amount_description: str | None = None,
+        prior_reference: str | None = None,
+    ) -> dict[str, object]:
+        """Add only newly spoken facts to the member's most recent editable grievance draft.
+
+        Use only during an active grievance-draft conversation and only for
+        details stated directly by the member. Do not use this to guess or to
+        change a reviewed/confirmed grievance. It never submits anything.
+        """
+
+        if self._account_id is None:
+            return {"updated": False, "message": "Sign in is required to save a grievance draft."}
+        try:
+            payload = GrievanceDraftInput(
+                subject=subject,
+                description=description,
+                organization=organization,
+                state=state,
+                district=district,
+                incident_date=incident_date,
+                amount_description=amount_description,
+                prior_reference=prior_reference,
+            )
+        except Exception:
+            return {"updated": False, "message": "That detail could not be saved. Ask the member to say it again."}
+        if not payload.model_fields_set:
+            return {"updated": False, "message": "No new grievance detail was provided."}
+        factory = get_session_factory()
+        if factory is None:
+            return {"updated": False, "message": "Grievance saving is unavailable right now."}
+        async with factory() as session:
+            account = await session.get(Account, self._account_id)
+            if account is None or not account.is_active:
+                return {"updated": False, "message": "Your signed-in account is unavailable."}
+            grievance = await session.scalar(
+                select(Grievance)
+                .where(Grievance.account_id == account.id, Grievance.status.in_({"DRAFT", "READY_FOR_CONFIRMATION"}))
+                .order_by(Grievance.updated_at.desc()).limit(1)
+            )
+            if grievance is None:
+                return {"updated": False, "message": "There is no editable grievance draft yet."}
+            await update_grievance_draft(session, grievance, payload, expected_version=grievance.version)
+            response = await serialize_grievance(session, grievance, include_events=False)
+        await self._notify_grievance(response.id)
+        return {"updated": True, "missing_information": response.missing_fields, "message": "The draft was updated and has not been submitted."}
+
+    @function_tool()
+    async def prepare_latest_grievance_preview(self) -> dict[str, object]:
+        """Prepare a full read-only preview of the latest editable grievance draft.
+
+        Use when the member asks to review, show, or prepare their grievance.
+        If information is missing, ask only for the listed missing details.
+        This does not submit or confirm the grievance.
+        """
+
+        if self._account_id is None:
+            return {"ready": False, "message": "Sign in is required to review a saved grievance."}
+        factory = get_session_factory()
+        if factory is None:
+            return {"ready": False, "message": "Grievance review is unavailable right now."}
+        async with factory() as session:
+            grievance = await session.scalar(
+                select(Grievance)
+                .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.DRAFT.value)
+                .order_by(Grievance.updated_at.desc()).limit(1)
+            )
+            if grievance is None:
+                return {"ready": False, "message": "There is no editable grievance draft to review."}
+            try:
+                await prepare_confirmation(session, grievance, expected_version=grievance.version)
+            except HTTPException as error:
+                return {"ready": False, "missing_information": missing_fields(grievance), "message": str(error.detail)}
+            response = await serialize_grievance(session, grievance, include_events=False)
+        await self._notify_grievance(response.id)
+        return {
+            "ready": True,
+            "subject": response.subject,
+            "category": response.category.value,
+            "authority": response.authority_name,
+            "message": "The full preview is displayed in the grievance workspace. Ask the member to review it there before confirming.",
+        }
+
+    @function_tool()
+    async def confirm_latest_grievance(self) -> dict[str, object]:
+        """Record explicit confirmation of the latest reviewed grievance draft.
+
+        Use only after the member has reviewed the displayed preview and has
+        clearly said an unambiguous equivalent of "yes, I confirm". This is
+        not an official submission and must never be described as one.
+        """
+
+        if self._account_id is None:
+            return {"confirmed": False, "message": "Sign in is required to confirm a saved grievance."}
+        factory = get_session_factory()
+        if factory is None:
+            return {"confirmed": False, "message": "Grievance confirmation is unavailable right now."}
+        async with factory() as session:
+            grievance = await session.scalar(
+                select(Grievance)
+                .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.READY_FOR_CONFIRMATION.value)
+                .order_by(Grievance.updated_at.desc()).limit(1)
+            )
+            if grievance is None:
+                return {"confirmed": False, "message": "There is no reviewed grievance waiting for confirmation."}
+            await confirm_grievance(session, grievance, expected_version=grievance.version)
+            response = await serialize_grievance(session, grievance, include_events=False)
+        await self._notify_grievance(response.id)
+        return {"confirmed": True, "message": "The draft confirmation is recorded. Open the official portal from the grievance workspace to lodge it yourself."}
+
+    @function_tool()
+    async def get_my_latest_grievance_status(self) -> dict[str, object]:
+        """Read the signed-in member's latest grievance state and timestamps.
+
+        Use when the member asks about the state, time, acknowledgement, or
+        progress of their grievance. It only reports Sahayak's stored record;
+        never claim the official status was freshly checked unless an approved
+        status integration has actually populated it.
+        """
+
+        if self._account_id is None:
+            return {"found": False, "message": "Sign in is required to view saved grievance records."}
+        factory = get_session_factory()
+        if factory is None:
+            return {"found": False, "message": "Grievance records are unavailable right now."}
+        async with factory() as session:
+            grievance = await session.scalar(
+                select(Grievance)
+                .where(Grievance.account_id == self._account_id)
+                .order_by(Grievance.updated_at.desc()).limit(1)
+            )
+            if grievance is None:
+                return {"found": False, "message": "No saved grievance was found."}
+            response = await serialize_grievance(session, grievance, include_events=False)
+        return {
+            "found": True,
+            "subject": response.subject or "grievance draft",
+            "state": response.status.value,
+            "official_reference": response.official_reference,
+            "created_at": response.created_at.isoformat(),
+            "last_updated_at": response.updated_at.isoformat(),
+            "last_official_status_checked_at": response.last_status_checked_at.isoformat() if response.last_status_checked_at else None,
+            "message": "This is the saved Sahayak record. No live official-status integration is configured for this grievance.",
+        }
 
     async def on_user_turn_completed(
         self,
@@ -306,6 +555,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     guest_context = ""
     user_context: UserKnowledgeContext | None = None
     has_reference_documents = False
+    account_id: int | None = None
     if guest_session_id and guest_session_secret:
         try:
             voice_context = await fetch_guest_context(
@@ -316,6 +566,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             guest_context = voice_context.context
             user_context = voice_context.user_context
             has_reference_documents = voice_context.has_reference_documents
+            account_id = voice_context.account_id
         except GuestSessionClientError:
             # Context enhances the call but an unavailable local API should
             # never prevent the voice agent from starting a conversation.
@@ -328,12 +579,27 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         active_language,
     )
 
+    async def publish_grievance_update(grievance_id: str) -> None:
+        """Tell only the current browser to reveal its saved grievance card."""
+
+        payload = json.dumps(
+            {"type": "grievance_update", "grievance_id": grievance_id}, separators=(",", ":")
+        )
+        await ctx.room.local_participant.publish_data(
+            payload,
+            reliable=True,
+            destination_identities=[participant.identity],
+            topic=_GRIEVANCE_CONTROL_TOPIC,
+        )
+
     assistant = SahayakAssistant(
         active_language,
         VoiceKnowledgeService(settings),
         guest_context,
         user_context,
         has_reference_documents,
+        account_id,
+        publish_grievance_update,
     )
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
@@ -374,7 +640,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     async def refresh_guest_context() -> None:
         """Pull latest text/document history before the next voice reply."""
 
-        nonlocal guest_context, user_context, has_reference_documents
+        nonlocal guest_context, user_context, has_reference_documents, account_id
         if not guest_session_id or not guest_session_secret:
             return
         try:
@@ -386,11 +652,13 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             guest_context = voice_context.context
             user_context = voice_context.user_context
             has_reference_documents = voice_context.has_reference_documents
+            account_id = voice_context.account_id
         except GuestSessionClientError:
             logger.warning("guest_context_unavailable phase=refresh")
             return
         assistant.set_user_context(user_context)
         assistant.set_has_reference_documents(has_reference_documents)
+        assistant.set_account_id(account_id)
         await assistant.update_instructions(
             build_voice_assistant_instructions(LANGUAGE_NAMES[active_language], guest_context)
         )
