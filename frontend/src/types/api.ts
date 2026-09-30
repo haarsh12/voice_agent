@@ -14,6 +14,53 @@ export type TextChatResponse = {
   sources: OfficialSourceReference[]
 }
 
+export type SchemeSummary = {
+  id: string
+  slug: string
+  official_name: string
+  short_name: string | null
+  scheme_type: string
+  category: string
+  description: string | null
+  beneficiary_categories: string[]
+  relevant_user_types: string[]
+  applicable_states: string[]
+  applicable_districts: string[]
+  geographic_scope: string
+  status: 'ACTIVE' | 'UPCOMING' | 'APPLICATION_OPEN' | 'APPLICATION_CLOSED' | 'PAUSED' | 'SUPERSEDED' | 'DISCONTINUED' | 'EXPIRED' | 'UNKNOWN'
+  verification_status: 'APPROVED' | 'REVIEW_REQUIRED'
+  last_checked_at: string
+}
+
+export type SchemeSource = {
+  source_name: string
+  title: string
+  url: string
+  relevant_section: string | null
+  page_number: number | null
+  document_version: number | null
+}
+
+export type SchemeDetail = SchemeSummary & {
+  data: Record<string, unknown>
+  sources: SchemeSource[]
+  current_version_number: number | null
+}
+
+export type SchemeSearchResponse = {
+  items: SchemeSummary[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export type SchemeFilters = {
+  categories: string[]
+  beneficiaries: string[]
+  states: string[]
+  types: string[]
+}
+
 export type EvidenceStatus =
   | 'VERIFIED_SOURCE'
   | 'MULTIPLE_VERIFIED_SOURCES'

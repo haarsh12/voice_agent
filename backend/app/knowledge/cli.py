@@ -15,6 +15,7 @@ from app.config.settings import get_settings
 from app.core.logging import configure_logging
 from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.registry import SOURCES_BY_KEY
+from app.schemes.repository import SchemeRepository
 
 
 async def _run(
@@ -22,6 +23,7 @@ async def _run(
     *,
     reconcile: bool = False,
     reindex_source: str | None = None,
+    backfill_schemes: bool = False,
 ) -> int:
     settings = get_settings()
     session_factory = get_session_factory()
@@ -50,6 +52,12 @@ async def _run(
             await service.repository.sync_source_registry()
             count = await service.reindex_current_source(reindex_source)
             logging.info("knowledge_source_reindex_complete source=%s chunks=%s", reindex_source, count)
+        elif backfill_schemes:
+            # Reuses only durable CURRENT documents already accepted by the
+            # knowledge pipeline.  It makes no network request and does not
+            # invent records, so it is safe to run after a deployment.
+            count = await SchemeRepository(session).sync_current_documents()
+            logging.info("scheme_catalog_backfill_complete changed=%s", count)
         elif source_key:
             await service.repository.sync_source_registry()
             recovered = await service.repository.recover_interrupted_checks()
@@ -78,6 +86,7 @@ def main() -> None:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--reconcile", action="store_true", help="Repair missing/stale Qdrant CURRENT points from the audit store.")
     group.add_argument("--reindex-source", choices=sorted(SOURCES_BY_KEY), help="Force one reviewed source's CURRENT chunks back into Qdrant.")
+    group.add_argument("--backfill-schemes", action="store_true", help="Build scheme records from already-ingested approved documents.")
     arguments = parser.parse_args()
     raise SystemExit(
         asyncio.run(
@@ -85,6 +94,7 @@ def main() -> None:
                 arguments.source,
                 reconcile=arguments.reconcile,
                 reindex_source=arguments.reindex_source,
+                backfill_schemes=arguments.backfill_schemes,
             )
         )
     )

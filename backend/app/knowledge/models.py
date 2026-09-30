@@ -173,3 +173,103 @@ class KnowledgeFailedResource(AuthBase):
     next_retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="PENDING")
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SchemeRecord(AuthBase):
+    """Canonical, source-derived identity for a scheme, programme, or service.
+
+    This table deliberately contains no browser-authored content.  A row is
+    created only by the knowledge ingestion path and points at immutable
+    ``SchemeVersion`` records for the user-facing facts.
+    """
+
+    __tablename__ = "sahayak_schemes"
+    __table_args__ = (
+        UniqueConstraint("normalized_name", name="sahayak_scheme_normalized_name_key"),
+        Index("sahayak_schemes_status_idx", "status", "verification_status"),
+        Index("sahayak_schemes_category_idx", "category"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(180), nullable=False, unique=True, index=True)
+    normalized_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    official_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    short_name: Mapped[str | None] = mapped_column(String(160))
+    aliases: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    scheme_type: Mapped[str] = mapped_column(String(48), nullable=False)
+    category: Mapped[str] = mapped_column(String(96), nullable=False)
+    ministry: Mapped[str | None] = mapped_column(String(240))
+    implementing_authority: Mapped[str | None] = mapped_column(String(240))
+    geographic_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="NATIONAL")
+    applicable_states: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    applicable_districts: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    beneficiary_categories: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    relevant_user_types: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="UNKNOWN")
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="REVIEW_REQUIRED")
+    current_version_number: Mapped[int | None] = mapped_column(Integer)
+    first_discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SchemeVersion(AuthBase):
+    """An immutable, structured snapshot of facts backed by one or more sources."""
+
+    __tablename__ = "sahayak_scheme_versions"
+    __table_args__ = (
+        UniqueConstraint("scheme_id", "version_number", name="sahayak_scheme_version_number_key"),
+        Index("sahayak_scheme_versions_current_idx", "is_current", "status"),
+        Index("sahayak_scheme_versions_hash_idx", "content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    scheme_id: Mapped[str] = mapped_column(ForeignKey("sahayak_schemes.id", ondelete="CASCADE"), nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="UNKNOWN")
+    verification_status: Mapped[str] = mapped_column(String(32), nullable=False, default="REVIEW_REQUIRED")
+    data: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False, default=dict)
+    evidence_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    publication_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SchemeSource(AuthBase):
+    """Auditable link from a scheme version to the exact approved evidence."""
+
+    __tablename__ = "sahayak_scheme_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "scheme_version_id", "document_version_id", "chunk_id", name="sahayak_scheme_source_evidence_key"
+        ),
+        Index("sahayak_scheme_sources_scheme_version_idx", "scheme_version_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    scheme_version_id: Mapped[str] = mapped_column(
+        ForeignKey("sahayak_scheme_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(
+        ForeignKey("sahayak_knowledge_sources.key", ondelete="RESTRICT"), nullable=False
+    )
+    document_version_id: Mapped[str] = mapped_column(
+        ForeignKey("sahayak_knowledge_document_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    chunk_id: Mapped[str | None] = mapped_column(ForeignKey("sahayak_knowledge_chunks.id", ondelete="SET NULL"))
+    source_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    document_title: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    relevant_section: Mapped[str | None] = mapped_column(String(500))
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

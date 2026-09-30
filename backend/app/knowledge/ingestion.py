@@ -23,6 +23,7 @@ from app.knowledge.fetching import (
 )
 from app.knowledge.registry import SOURCES_BY_KEY, ApprovedSourceDefinition
 from app.knowledge.repository import KnowledgeRepository
+from app.schemes.repository import SchemeRepository
 from app.knowledge.models import KnowledgeChunk, KnowledgeDocument, KnowledgeDocumentVersion, KnowledgeSource
 from app.knowledge.ocr import OcrProvider, create_ocr_provider
 from app.knowledge.vectors import (
@@ -374,6 +375,15 @@ class KnowledgeIngestionService:
                 }
                 for chunk in chunks
             ],
+        )
+        # Build/update the canonical scheme catalogue from the very same
+        # approved document version and chunks.  This stays inside the
+        # ingestion transaction: a failed extraction or vector write cannot
+        # expose a partial, browser-visible scheme record.
+        await SchemeRepository(self.repository.session).upsert_from_document(
+            source=await self.repository.session.get(KnowledgeSource, source.key) or source,
+            version=version,
+            chunks=stored_chunks,
         )
         try:
             vectors = await asyncio.wait_for(

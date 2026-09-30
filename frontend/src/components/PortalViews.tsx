@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bell,
   BookOpenCheck,
@@ -7,7 +7,6 @@ import {
   FileText,
   Fingerprint,
   Landmark,
-  Leaf,
   LoaderCircle,
   MessageSquareWarning,
   Mic,
@@ -16,13 +15,13 @@ import {
   ShieldAlert,
   Trash2,
   Upload,
-  UserRound,
   WalletCards,
 } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
+import { getSchemeDetail, getSchemeFilters, getSchemes } from '../lib/api'
 import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
-import type { SahayakProfile, UserType } from '../types/api'
+import type { SahayakProfile, SchemeDetail, SchemeFilters, SchemeSummary, UserType } from '../types/api'
 import type { AppRoute } from '../types/navigation'
 
 type Navigate = (route: AppRoute) => void
@@ -93,18 +92,6 @@ export function DocumentsView({ onTalk }: { onTalk: () => void }) {
   )
 }
 
-type SchemeAudience = UserType | 'all'
-type SchemeGuide = {
-  icon: typeof Landmark
-  name: string
-  category: string
-  summary: string
-  eligibility: string
-  documents: string
-  timing: string
-  appliesTo: SchemeAudience[]
-}
-
 const USER_TYPE_LABELS: Record<UserType, string> = {
   cooperative_member: 'Cooperative member',
   farmer: 'Farmer',
@@ -114,98 +101,94 @@ const USER_TYPE_LABELS: Record<UserType, string> = {
   other: 'Other rural stakeholder',
 }
 
-const SCHEME_GUIDES: SchemeGuide[] = [
-  {
-    icon: Leaf,
-    name: 'PM-KISAN guidance',
-    category: 'Farmer support',
-    summary: 'A Sahayak guide for income-support questions from eligible landholding farmer families.',
-    eligibility: 'Landholding farmer-family status and programme exclusions need to match your current record.',
-    documents: 'Keep identity, bank, land-record and e-KYC details ready when Sahayak asks for them.',
-    timing: 'Updates and instalment timing can change; ask Sahayak for the current information available here.',
-    appliesTo: ['farmer'],
-  },
-  {
-    icon: ShieldAlert,
-    name: 'PMFBY crop-insurance guidance',
-    category: 'Crop insurance',
-    summary: 'Understand crop-insurance coverage, loss reporting and claim-preparation questions in one place.',
-    eligibility: 'It depends on your crop, notified area, season and the applicable insurance cycle.',
-    documents: 'Keep crop, land or tenancy, sowing and policy or acknowledgement details available.',
-    timing: 'Seasonal windows and loss-reporting timelines vary. Sahayak will use the available current record for your question.',
-    appliesTo: ['farmer', 'pacs_member', 'rural_stakeholder'],
-  },
-  {
-    icon: WalletCards,
-    name: 'Kisan Credit Card guidance',
-    category: 'Farm finance',
-    summary: 'Prepare questions about short-term agricultural credit and related farming activities.',
-    eligibility: 'Farmers and some allied-activity participants may qualify based on their activity and lender assessment.',
-    documents: 'Keep identity, address, land or activity proof, and existing credit details ready.',
-    timing: 'There is no single universal deadline shown here; ask Sahayak about the requirement you are preparing for.',
-    appliesTo: ['farmer', 'pacs_member', 'cooperative_member', 'rural_stakeholder'],
-  },
-  {
-    icon: Landmark,
-    name: 'Agriculture Infrastructure Fund guidance',
-    category: 'Cooperative infrastructure',
-    summary: 'Plan questions for storage, processing and other eligible farm-infrastructure proposals.',
-    eligibility: 'PACS, farmer groups, cooperatives and other eligible project entities depend on the project type and programme terms.',
-    documents: 'Keep entity registration, project outline, cost estimate, ownership or lease and financial records ready.',
-    timing: 'Programme windows and approval requirements can change; Sahayak can help you prepare a complete question.',
-    appliesTo: ['farmer', 'pacs_member', 'cooperative_member', 'cooperative_official'],
-  },
-  {
-    icon: Landmark,
-    name: 'PACS computerisation support',
-    category: 'PACS services',
-    summary: 'Organise PACS digitisation, records and service-readiness questions for your cooperative.',
-    eligibility: 'The PACS status, state implementation process and approved scope determine whether support applies.',
-    documents: 'Keep PACS registration, committee, audit, member-record and existing-system details ready.',
-    timing: 'Implementation schedules are location-specific. Share your state and PACS role with Sahayak for a focused guide.',
-    appliesTo: ['pacs_member', 'cooperative_official', 'cooperative_member'],
-  },
-  {
-    icon: UserRound,
-    name: 'Cooperative member-service guide',
-    category: 'Cooperative services',
-    summary: 'Understand membership records, meetings, service requests and documents to organise for a cooperative query.',
-    eligibility: 'This guidance is for existing members or people preparing a membership or service request with a cooperative.',
-    documents: 'Keep membership number, cooperative name, relevant receipts, meeting or service records and any written request.',
-    timing: 'Service timelines depend on the cooperative and the issue. Sahayak can help you make a clear follow-up plan.',
-    appliesTo: ['cooperative_member', 'pacs_member', 'cooperative_official', 'rural_stakeholder'],
-  },
-  {
-    icon: MessageSquareWarning,
-    name: 'Grievance preparation guide',
-    category: 'Support and grievances',
-    summary: 'Turn a service problem into a clear, factual grievance draft and keep the relevant evidence together.',
-    eligibility: 'Anyone with a specific service issue can use this guidance; the right path depends on the organisation and facts.',
-    documents: 'Keep dates, acknowledgements, receipts, correspondence, reference numbers and the outcome you need.',
-    timing: 'Record the date of each step and any stated response period. Sahayak can help structure your follow-up.',
-    appliesTo: ['all'],
-  },
-]
-
 export function SchemesView({ onTalk, profile }: { onTalk: () => void; profile?: SahayakProfile | null }) {
   const isGuest = !profile
-  const [guestAudience, setGuestAudience] = useState<SchemeAudience>('all')
-  const audience = profile?.user_type ?? guestAudience
-  const schemes = useMemo(
-    () => SCHEME_GUIDES.filter((scheme) => audience === 'all' || scheme.appliesTo.includes('all') || scheme.appliesTo.includes(audience)),
-    [audience],
-  )
+  const [guestAudience, setGuestAudience] = useState<string>('')
+  const [category, setCategory] = useState('')
+  const [state, setState] = useState('')
+  const [query, setQuery] = useState('')
+  const [submittedQuery, setSubmittedQuery] = useState('')
+  const [filters, setFilters] = useState<SchemeFilters>({ categories: [], beneficiaries: [], states: [], types: [] })
+  const [schemes, setSchemes] = useState<SchemeSummary[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<SchemeDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  const loadSchemes = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await getSchemes({
+        query: submittedQuery,
+        category: category || undefined,
+        beneficiary: isGuest ? guestAudience || undefined : undefined,
+        state: isGuest ? state || undefined : undefined,
+        relevantToMe: !isGuest,
+      })
+      setSchemes(response.items)
+      setTotal(response.total)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'We could not load the verified scheme directory.')
+    } finally {
+      setLoading(false)
+    }
+  }, [category, guestAudience, isGuest, state, submittedQuery])
+
+  useEffect(() => {
+    void getSchemeFilters().then(setFilters).catch(() => setFilters({ categories: [], beneficiaries: [], states: [], types: [] }))
+  }, [])
+  useEffect(() => { void loadSchemes() }, [loadSchemes])
+
+  async function openScheme(scheme: SchemeSummary): Promise<void> {
+    setDetailLoading(true)
+    setSelected(null)
+    try {
+      setSelected(await getSchemeDetail(scheme.slug))
+    } catch (detailError) {
+      setError(detailError instanceof Error ? detailError.message : 'We could not open that scheme record.')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const audienceLabel = profile?.user_type ? USER_TYPE_LABELS[profile.user_type] : 'your profile'
   return (
     <main className="portal-page">
-      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find support for your situation.' : 'Your relevant scheme guide.'} text={isGuest ? 'Choose your category to see available guidance, eligibility questions, document checklists and timing considerations in Sahayak AI.' : `This view is tailored to your profile category: ${USER_TYPE_LABELS[profile?.user_type ?? 'other']}.`} />
+      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find verified support for your situation.' : 'Your relevant verified schemes.'} text={isGuest ? 'Browse schemes, programmes and services discovered from Sahayak’s connected official sources. Choose your category or location to narrow the directory.' : `This directory is filtered using your Sahayak profile: ${audienceLabel}.`} />
       <section className="scheme-toolbar" aria-label="Scheme audience">
-        <div><BookOpenCheck size={19} /><div><strong>{isGuest ? 'Guest scheme directory' : 'Personalised scheme directory'}</strong><p>{isGuest ? 'Select a category, or ask Sahayak to narrow the list using your crop, location or cooperative role.' : 'Only guidance relevant to your registered category is shown. Update your profile if your role has changed.'}</p></div></div>
-        {isGuest && <label> I am a <select onChange={(event) => setGuestAudience(event.target.value as SchemeAudience)} value={guestAudience}><option value="all">Guest — show all</option>{(Object.entries(USER_TYPE_LABELS) as [UserType, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
+        <div><BookOpenCheck size={19} /><div><strong>{isGuest ? 'Guest scheme directory' : 'Personalised scheme directory'}</strong><p>{isGuest ? 'All currently verified records are available to browse. Tell Sahayak your category, state, crop or cooperative role for a focused shortlist.' : 'Your category and location are used only to surface potentially relevant records; they never guarantee eligibility.'}</p></div></div>
       </section>
-      <section className="scheme-grid">{schemes.map(({ icon: Icon, name, category, summary, eligibility, documents, timing }) => <article className="scheme-card scheme-card--detailed" key={name}><span><Icon size={21} /></span><p className="preview-badge">{category}</p><h2>{name}</h2><p>{summary}</p><dl><div><dt>Who this may fit</dt><dd>{eligibility}</dd></div><div><dt>Keep ready</dt><dd>{documents}</dd></div><div><dt>Timing</dt><dd>{timing}</dd></div></dl><button className="link-action" onClick={onTalk} type="button">Ask Sahayak about this <ChevronRight size={15} /></button></article>)}</section>
-      {schemes.length === 0 && <EmptyState icon={BookOpenCheck} text="No guidance matches this category yet. Ask Sahayak to help with your specific role and requirement." actionLabel="Ask Sahayak" onAction={onTalk} />}
+      <form className="scheme-filters" onSubmit={(event) => { event.preventDefault(); setSubmittedQuery(query) }}>
+        <input aria-label="Search verified schemes" maxLength={240} onChange={(event) => setQuery(event.target.value)} placeholder="Search support, insurance, credit or a scheme name" value={query} />
+        <select aria-label="Scheme category" onChange={(event) => setCategory(event.target.value)} value={category}><option value="">All categories</option>{filters.categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+        {isGuest && <select aria-label="Your category" onChange={(event) => setGuestAudience(event.target.value)} value={guestAudience}><option value="">All beneficiary groups</option>{filters.beneficiaries.map((item) => <option key={item} value={item}>{USER_TYPE_LABELS[item as UserType] ?? item.replaceAll('_', ' ')}</option>)}</select>}
+        {isGuest && <select aria-label="State" onChange={(event) => setState(event.target.value)} value={state}><option value="">All locations</option>{filters.states.map((item) => <option key={item} value={item}>{item}</option>)}</select>}
+        <button className="secondary-action" type="submit">Search</button>
+      </form>
+      <p className="scheme-result-count" aria-live="polite">{loading ? 'Loading verified records…' : `${total} verified record${total === 1 ? '' : 's'} found`}</p>
+      {error && <p className="inline-notice">{error}</p>}
+      {!loading && <section className="scheme-grid">{schemes.map((scheme) => <article className="scheme-card scheme-card--catalogue" key={scheme.id}><span><BookOpenCheck size={21} /></span><p className="preview-badge">{scheme.category}</p><h2>{scheme.official_name}</h2><p>{scheme.description || 'Verified information is available in Sahayak AI.'}</p><dl><div><dt>For</dt><dd>{scheme.beneficiary_categories.length ? scheme.beneficiary_categories.map((item) => USER_TYPE_LABELS[item as UserType] ?? item.replaceAll('_', ' ')).join(', ') : 'See verified details'}</dd></div><div><dt>Coverage</dt><dd>{scheme.applicable_states.length ? scheme.applicable_states.join(', ') : scheme.geographic_scope === 'STATE' ? 'State-specific' : 'National / source-defined'}</dd></div><div><dt>Current status</dt><dd>{scheme.status === 'UNKNOWN' ? 'Current operational status not verified' : scheme.status.replaceAll('_', ' ')}</dd></div></dl><button className="link-action" onClick={() => void openScheme(scheme)} type="button">View details <ChevronRight size={15} /></button></article>)}</section>}
+      {!loading && schemes.length === 0 && <EmptyState icon={BookOpenCheck} text="No verified record matches these filters yet. Ask Sahayak to narrow your need by category, state, crop, cooperative role or support type." actionLabel="Ask Sahayak" onAction={onTalk} />}
+      {detailLoading && <p className="inline-notice">Opening verified scheme details…</p>}
+      {selected && <SchemeDetailPanel scheme={selected} onAsk={onTalk} onClose={() => setSelected(null)} />}
     </main>
   )
+}
+
+function SchemeDetailPanel({ scheme, onAsk, onClose }: { scheme: SchemeDetail; onAsk: () => void; onClose: () => void }) {
+  const dataValue = (key: string) => typeof scheme.data[key] === 'string' ? scheme.data[key] as string : null
+  const fields = [
+    ['What this is', dataValue('description')],
+    ['Objective', dataValue('objective')],
+    ['Who it may fit', dataValue('eligibility')],
+    ['What it provides', dataValue('benefits')],
+    ['Documents', dataValue('required_documents')],
+    ['How to apply', dataValue('application_process')],
+    ['Important dates', dataValue('important_dates')],
+  ].filter((item): item is [string, string] => Boolean(item[1]))
+  return <section className="scheme-detail-panel" aria-label="Verified scheme details"><div className="scheme-detail-panel__head"><div><p className="section-kicker">{scheme.scheme_type.replaceAll('_', ' ')}</p><h2>{scheme.official_name}</h2><p>Potential relevance is based on recorded source information. It is not an eligibility guarantee.</p></div><button className="header-icon-button" onClick={onClose} type="button" aria-label="Close details">×</button></div><div className="scheme-detail-panel__content">{fields.length ? fields.map(([label, value]) => <article key={label}><h3>{label}</h3><p>{value}</p></article>) : <p>Detailed fields have not yet been verified from the connected official record.</p>}</div><section className="scheme-detail-panel__sources"><h3>Verified information</h3><p>These source records support the information shown in Sahayak AI. You can ask Sahayak to explain any part here.</p><ul>{scheme.sources.map((source) => <li key={`${source.source_name}-${source.title}-${source.relevant_section}`}><strong>{source.source_name}</strong><span>{source.title}{source.relevant_section ? ` · ${source.relevant_section}` : ''}</span></li>)}</ul></section><button className="primary-action" onClick={onAsk} type="button">Ask Sahayak about this</button></section>
 }
 
 const NOTIFICATIONS = [

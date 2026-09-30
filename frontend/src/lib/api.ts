@@ -9,6 +9,9 @@ import type {
   TextChatResponse,
   VerifiedProfile,
   UserType,
+  SchemeDetail,
+  SchemeFilters,
+  SchemeSearchResponse,
 } from '../types/api'
 import type { ServerWebAuthnOptions, WebAuthnCredentialJSON } from './webauthn'
 
@@ -70,6 +73,33 @@ function csrfHeaders(): HeadersInit {
 
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health')
+}
+
+export function getSchemes(params: {
+  query?: string
+  category?: string
+  beneficiary?: string
+  state?: string
+  relevantToMe?: boolean
+  offset?: number
+} = {}): Promise<SchemeSearchResponse> {
+  const query = new URLSearchParams()
+  if (params.query?.trim()) query.set('query', params.query.trim())
+  if (params.category) query.set('category', params.category)
+  if (params.beneficiary) query.set('beneficiary', params.beneficiary)
+  if (params.state?.trim()) query.set('state', params.state.trim())
+  if (params.relevantToMe) query.set('relevant_to_me', 'true')
+  if (params.offset) query.set('offset', String(params.offset))
+  const suffix = query.size ? `?${query.toString()}` : ''
+  return request<SchemeSearchResponse>(`/api/schemes${suffix}`)
+}
+
+export function getSchemeFilters(): Promise<SchemeFilters> {
+  return request<SchemeFilters>('/api/schemes/filters')
+}
+
+export function getSchemeDetail(identifier: string): Promise<SchemeDetail> {
+  return request<SchemeDetail>(`/api/schemes/${encodeURIComponent(identifier)}`)
 }
 
 function adminCsrfHeaders(): HeadersInit {

@@ -22,6 +22,8 @@ from app.config.settings import MissingConfigurationError, Settings, get_setting
 from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
 from app.knowledge.policy import decide_response
 from app.knowledge.retrieval import KnowledgeRetriever, format_evidence_for_model
+from app.schemes.repository import SchemeRepository
+from app.schemes.voice import discover_for_voice
 from app.services.document_text import (
     MAX_UPLOAD_BYTES,
     DocumentExtractionError,
@@ -447,6 +449,38 @@ async def create_text_chat_reply(
         else None
     )
     retrieval = await KnowledgeRetriever(session, settings).retrieve(message, user_context=user_context)
+    # Text and voice both consult the same canonical catalogue.  Catalogue
+    # selections are merged as ordinary verified chunks so the evidence policy
+    # still governs benefits, eligibility, dates, and application guidance.
+    try:
+        scheme_result = await discover_for_voice(
+            SchemeRepository(session),
+            message=message,
+            context=user_context,
+        )
+    except Exception:
+        # A catalogue outage must not make the existing verified retrieval
+        # path unavailable.  The policy below still abstains safely if no
+        # source evidence was retrieved.
+        logger.warning("scheme_catalogue_lookup_unavailable")
+        scheme_result = None
+    scheme_instruction = ""
+    if scheme_result is not None and scheme_result.page.items:
+        try:
+            catalogue_evidence = await SchemeRepository(session).evidence_for_schemes(
+                [item.id for item in scheme_result.page.items]
+            )
+            combined = {item.chunk_id: item for item in (*catalogue_evidence, *retrieval.evidence)}
+            retrieval = type(retrieval)(evidence=tuple(combined.values()), unavailable_reason=retrieval.unavailable_reason)
+            names = "\n".join(f"- {item.official_name} ({item.scheme_type}; {item.category})" for item in scheme_result.page.items)
+            more = max(scheme_result.page.total - len(scheme_result.page.items), 0)
+            scheme_instruction = (
+                "\nVERIFIED SCHEME DIRECTORY RESULTS\n"
+                f"{names}\nMore verified records: {more}. Do not promise eligibility or invent absent details. "
+                "Do not send the user to another website; explain the available in-app guidance.\n"
+            )
+        except Exception:
+            logger.warning("scheme_catalogue_evidence_unavailable")
     decision = decide_response(
         message=message,
         language=language,
@@ -471,7 +505,7 @@ async def create_text_chat_reply(
                     image_data=image.data if image else None,
                     image_mime_type=image.mime_type if image else None,
                     guest_context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
-                    verified_evidence=format_evidence_for_model(decision.retrieval.evidence),
+                    verified_evidence=format_evidence_for_model(decision.retrieval.evidence) + scheme_instruction,
                     evidence_status=decision.evidence_status.value,
                 ),
                 timeout=45,
