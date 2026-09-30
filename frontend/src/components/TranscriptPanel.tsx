@@ -27,6 +27,7 @@ const evidenceStatusLabel: Record<EvidenceStatus, string> = {
   MULTIPLE_VERIFIED_SOURCES: 'Sahayak knowledge-base guidance',
   PARTIALLY_VERIFIED: 'Sahayak knowledge-base guidance',
   GENERAL_MODEL_KNOWLEDGE: 'General guidance',
+  GENERAL_GUIDANCE: 'General guidance - not from official verified sources',
   INSUFFICIENT_EVIDENCE: 'General guidance',
 }
 

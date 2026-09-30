@@ -691,26 +691,39 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     async def publish_voice_citations(update: VoiceCitationUpdate, assistant_text: str) -> None:
         """Send references through LiveKit data, never through the speech stream."""
 
-        payload = json.dumps(
-            {
-                "type": "voice_evidence",
-                "evidence_status": update.evidence_status.value,
-                # The UI matches this final text rather than guessing based on
-                # arrival order, which keeps citations off an interrupted turn.
-                "reply_text": assistant_text,
-                "sources": [
-                    {
-                        "name": citation.source_name,
-                        "title": citation.title,
-                        "url": citation.url,
-                        "document_version": citation.document_version,
-                        "freshness_status": citation.freshness_status.value,
-                    }
-                    for citation in update.citations
-                ],
-            },
-            separators=(",", ":"),
-        )
+        # Handle case where no official sources were found (general guidance mode)
+        if not update.citations and update.evidence_status.value in {"NO_EVIDENCE", "GENERAL"}:
+            payload = json.dumps(
+                {
+                    "type": "voice_evidence",
+                    "evidence_status": "GENERAL_GUIDANCE",
+                    "reply_text": assistant_text,
+                    "sources": [],
+                    "note": "General Guidance - Not from official verified sources",
+                },
+                separators=(",", ":"),
+            )
+        else:
+            payload = json.dumps(
+                {
+                    "type": "voice_evidence",
+                    "evidence_status": update.evidence_status.value,
+                    # The UI matches this final text rather than guessing based on
+                    # arrival order, which keeps citations off an interrupted turn.
+                    "reply_text": assistant_text,
+                    "sources": [
+                        {
+                            "name": citation.source_name,
+                            "title": citation.title,
+                            "url": citation.url,
+                            "document_version": citation.document_version,
+                            "freshness_status": citation.freshness_status.value,
+                        }
+                        for citation in update.citations
+                    ],
+                },
+                separators=(",", ":"),
+            )
         await ctx.room.local_participant.publish_data(
             payload,
             reliable=True,

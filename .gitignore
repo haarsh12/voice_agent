@@ -76,3 +76,8 @@ logs/
 # OS
 Thumbs.db
 .DS_Store
+
+# Reference folders (archived/backup code)
+reference_backend_folder/
+reference_frontend_previous/
+previous_reference_livekit_frontend/

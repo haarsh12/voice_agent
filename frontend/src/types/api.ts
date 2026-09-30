@@ -150,6 +150,7 @@ export type EvidenceStatus =
   | 'MULTIPLE_VERIFIED_SOURCES'
   | 'PARTIALLY_VERIFIED'
   | 'GENERAL_MODEL_KNOWLEDGE'
+  | 'GENERAL_GUIDANCE'
   | 'INSUFFICIENT_EVIDENCE'
 
 export type OfficialSourceReference = {

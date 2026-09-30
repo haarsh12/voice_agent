@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.security import (
     clear_admin_session,
@@ -15,7 +16,9 @@ from app.admin.security import (
     verify_admin_credentials,
 )
 from app.auth.rate_limit import SlidingWindowRateLimiter
+from app.auth.session import get_auth_session
 from app.config.settings import MissingConfigurationError, Settings, get_settings
+from app.schemes.repository import SchemeRepository
 
 router = APIRouter(prefix="/api/admin", tags=["knowledge administration"])
 _login_limiter = SlidingWindowRateLimiter(max_requests=5, window_seconds=300)
@@ -84,3 +87,41 @@ async def end_admin_session(
 ) -> None:
     require_admin_csrf(request)
     clear_admin_session(response, settings=settings)
+
+
+class SchemeSyncResponse(BaseModel):
+    """Result of scheme catalog synchronization."""
+    
+    success: bool
+    schemes_updated: int
+    message: str
+
+
+@router.post("/schemes/sync", response_model=SchemeSyncResponse)
+async def sync_scheme_catalog(
+    request: Request,
+    _: None = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_auth_session),
+) -> SchemeSyncResponse:
+    """Manually trigger scheme catalog sync from knowledge base documents.
+    
+    This backfills scheme records from already-ingested approved documents
+    without making any network requests or inventing records.
+    """
+    require_admin_csrf(request)
+    
+    try:
+        count = await SchemeRepository(session).sync_current_documents()
+        _logger.info("admin_scheme_sync_complete changed=%s", count)
+        return SchemeSyncResponse(
+            success=True,
+            schemes_updated=count,
+            message=f"Successfully synchronized {count} scheme record(s) from knowledge base."
+        )
+    except Exception as error:
+        _logger.error("admin_scheme_sync_failed", exc_info=True)
+        return SchemeSyncResponse(
+            success=False,
+            schemes_updated=0,
+            message=f"Scheme sync failed: {str(error)}"
+        )

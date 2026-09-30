@@ -86,6 +86,7 @@ function parseVoiceEvidenceUpdate(value: unknown): VoiceEvidenceUpdate | null {
     'MULTIPLE_VERIFIED_SOURCES',
     'PARTIALLY_VERIFIED',
     'GENERAL_MODEL_KNOWLEDGE',
+    'GENERAL_GUIDANCE',
     'INSUFFICIENT_EVIDENCE',
   ].includes(evidenceStatus)) return null
   const replyText = voiceReplyKey(value.reply_text)

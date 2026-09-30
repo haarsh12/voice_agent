@@ -113,11 +113,16 @@ class VoiceKnowledgeService:
             )
         else:
             instructions = (
-                "No verified source evidence was retrieved for this question. Keep any answer "
-                "general and educational; do not present it as a current official, legal, "
-                "financial, scheme, eligibility, deadline, claim, contact, or procedural fact. "
-                "If a user-provided document is in the context, explain only what that document "
-                "says and do not treat it as confirmation of a current rule."
+                "GENERAL GUIDANCE MODE - No verified official sources found.\n"
+                "You may provide helpful general guidance using your knowledge, BUT you must:\n"
+                "1. Clearly label it as 'general guidance' or 'generally, the process...'\n"
+                "2. NEVER present it as official verified information\n"
+                "3. NEVER claim specific current deadlines, amounts, or eligibility without evidence\n"
+                "4. NEVER redirect users to external websites or portals\n"
+                "5. Keep guidance educational and conversational\n"
+                "6. If asked about schemes, explain general types of support that exist without inventing specific ones\n"
+                "Visual note: The UI will show 'General Guidance - Not from official verified sources' "
+                "instead of source citations for this response."
             )
 
         if scheme_result is not None and scheme_result.page.items and not decision.requires_abstention:

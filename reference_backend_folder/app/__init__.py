@@ -1,1 +1,0 @@
-"""Vyamit backend application package."""
