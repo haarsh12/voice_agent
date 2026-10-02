@@ -1,6 +1,7 @@
 import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Camera, FileText, ImagePlus, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { CameraCapture } from './CameraCapture'
+import { CitationList, GeneralGuidanceNotice } from './CitationCard'
 import type { EvidenceStatus, OfficialSourceReference } from '../types/api'
 
 export type TranscriptEntry = {
@@ -23,11 +24,11 @@ type TranscriptPanelProps = {
 const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 
 const evidenceStatusLabel: Record<EvidenceStatus, string> = {
-  VERIFIED_SOURCE: 'Sahayak knowledge-base guidance',
-  MULTIPLE_VERIFIED_SOURCES: 'Sahayak knowledge-base guidance',
-  PARTIALLY_VERIFIED: 'Sahayak knowledge-base guidance',
+  VERIFIED_SOURCE: 'Official sources used',
+  MULTIPLE_VERIFIED_SOURCES: 'Multiple official sources',
+  PARTIALLY_VERIFIED: 'Verified information',
   GENERAL_MODEL_KNOWLEDGE: 'General guidance',
-  GENERAL_GUIDANCE: 'General guidance - not from official verified sources',
+  GENERAL_GUIDANCE: 'General guidance',
   INSUFFICIENT_EVIDENCE: 'General guidance',
 }
 
@@ -144,15 +145,15 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                   </span>
                 )}
                 {entry.role === 'assistant' && entry.sources && entry.sources.length > 0 && (
-                  <footer className="transcript-entry__sources" aria-label="Sahayak knowledge-base records">
-                    <span>Knowledge records used for this answer</span>
-                    {entry.sources.map((source) => (
-                      <div className="transcript-entry__source-record" key={source.url}>
-                        <b>{source.name}</b>
-                        <small>{source.title}{source.document_version ? ` · Version ${source.document_version}` : ''}</small>
-                      </div>
-                    ))}
-                  </footer>
+                  <CitationList 
+                    citations={entry.sources} 
+                    title="📚 Official Sources"
+                    compact={true}
+                    className="transcript-entry__citations"
+                  />
+                )}
+                {entry.role === 'assistant' && entry.evidenceStatus === 'GENERAL_GUIDANCE' && (
+                  <GeneralGuidanceNotice className="transcript-entry__notice" />
                 )}
                 {entry.attachmentName && (
                   <span className="transcript-entry__attachment">

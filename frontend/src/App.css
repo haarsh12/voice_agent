@@ -195,8 +195,22 @@ textarea { background-color: var(--surface); }
 .app-shell--voice .voice-app { height: auto; min-height: 0; padding: 18px 0 42px; overflow: visible; }
 .app-shell--voice .split-layout { align-items: stretch; min-height: 0; overflow: visible; }
 .app-shell--voice .voice-stage { min-height: 548px; }
-.app-shell--voice .transcript-panel { height: auto; min-height: 548px; max-height: 200svh; overflow: hidden; }
-.app-shell--voice .transcript-scroll-container { min-height: 250px; overflow-y: auto; }
+.app-shell--voice .transcript-panel { 
+  height: auto; 
+  min-height: 548px; 
+  max-height: 85vh; 
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell--voice .transcript-scroll-container { 
+  flex: 1 1 auto;
+  min-height: 250px; 
+  max-height: calc(85vh - 220px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
 .app-shell--voice .text-composer { flex: 0 0 auto; }
 
 .auth-choice--face { border-color: #c8dfd4; background: #f7fbf8; }

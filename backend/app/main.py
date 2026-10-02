@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router
+from app.api.services_routes import router as services_router
 from app.admin.routes import router as admin_router
 from app.auth.routes import router as auth_router
 from app.auth.session import get_session_factory
@@ -29,15 +30,16 @@ async def lifespan(app: FastAPI):
     """Initialize schemes from knowledge base on startup if needed."""
     logger.info("sahayak_api_startup")
     
-    # Backfill schemes from existing knowledge base documents
-    session_factory = get_session_factory()
-    if session_factory is not None:
-        try:
-            async with session_factory() as session:
-                count = await SchemeRepository(session).sync_current_documents()
-                logger.info("scheme_catalog_startup_sync changed=%s", count)
-        except Exception:
-            logger.warning("scheme_catalog_startup_sync_failed", exc_info=True)
+    # Skip expensive sync on every startup - only run manually or via admin API
+    # To manually sync: run `python -c "import asyncio; from app.schemes.repository import SchemeRepository; from app.auth.session import get_session_factory; asyncio.run(sync())"`
+    # session_factory = get_session_factory()
+    # if session_factory is not None:
+    #     try:
+    #         async with session_factory() as session:
+    #             count = await SchemeRepository(session).sync_current_documents()
+    #             logger.info("scheme_catalog_startup_sync changed=%s", count)
+    #     except Exception:
+    #         logger.warning("scheme_catalog_startup_sync_failed", exc_info=True)
     
     yield
     
@@ -66,6 +68,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(knowledge_router)
 app.include_router(schemes_router)
+app.include_router(services_router)
 app.include_router(grievances_router)
 
 

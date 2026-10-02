@@ -53,9 +53,23 @@ class SchemeDetailResponse(SchemeSummaryResponse):
 
 class SchemeSearchResponse(BaseModel):
     items: list[SchemeSummaryResponse] = Field(default_factory=list)
+    schemes: list[SchemeSummaryResponse] = Field(default_factory=list)  # Alias for mobile app compatibility
     total: int
     offset: int
     limit: int
+    page: int = 1
+    has_more: bool = False
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Auto-populate schemes from items for backward compatibility
+        if not self.schemes and self.items:
+            self.schemes = self.items
+        # Calculate page from offset
+        if self.offset > 0 and self.limit > 0:
+            self.page = (self.offset // self.limit) + 1
+        # Calculate has_more
+        self.has_more = (self.offset + len(self.items)) < self.total
 
 
 class SchemeFilterResponse(BaseModel):
@@ -80,17 +94,24 @@ async def list_schemes(
     district: str | None = Query(default=None, max_length=120),
     relevant_to_me: bool = False,
     active_only: bool = False,
-    limit: int = Query(default=18, ge=1, le=48),
-    offset: int = Query(default=0, ge=0, le=10000),
+    page: int | None = Query(default=None, ge=1, le=1000),  # Mobile app uses page
+    limit: int = Query(default=20, ge=1, le=48),
+    offset: int | None = Query(default=None, ge=0, le=10000),  # Web app uses offset
     session: AsyncSession = Depends(get_auth_session),
     settings: Settings = Depends(get_settings),
 ) -> SchemeSearchResponse:
-    """Search the bounded catalogue. This user-facing path never crawls."""
+    """Search the bounded catalogue with page or offset-based pagination."""
 
+    # Convert page to offset if page is provided
+    if page is not None:
+        offset = (page - 1) * limit
+    elif offset is None:
+        offset = 0
+    
     profile_type, profile_state, profile_district = await _profile_context(request, session, settings)
     if relevant_to_me:
         beneficiary, state, district = profile_type or beneficiary, profile_state or state, profile_district or district
-    page = await SchemeRepository(session).list_schemes(
+    page_result = await SchemeRepository(session).list_schemes(
         query=query,
         category=category,
         beneficiary=beneficiary,
@@ -100,7 +121,7 @@ async def list_schemes(
         limit=limit,
         offset=offset,
     )
-    return _page_response(page)
+    return _page_response(page_result)
 
 
 @router.get("/filters", response_model=SchemeFilterResponse)

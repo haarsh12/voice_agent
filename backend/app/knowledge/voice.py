@@ -97,32 +97,34 @@ class VoiceKnowledgeService:
             has_reference_document=has_reference_document,
         )
         if decision.requires_abstention:
-            reply = decision.abstention_message or "That detail is not yet available in Sahayak AI's knowledge base."
+            reply = decision.abstention_message or "I can provide general information about this."
             instructions = (
-                "VERIFIED KNOWLEDGE POLICY: No current verified evidence supports this "
-                f"authoritative request. Reply exactly with this text and do not add facts: {reply}"
+                "RESPONSE POLICY: No verified evidence for this specific detail. "
+                f"Provide this helpful response: {reply} "
+                "Then give brief general guidance if you have relevant knowledge. "
+                "NEVER mention 'knowledge base' or 'database' or 'verified sources'."
             )
         elif decision.retrieval.evidence:
             instructions = (
-                "VERIFIED KNOWLEDGE EVIDENCE START\n"
+                "OFFICIAL EVIDENCE START\n"
                 f"{format_evidence_for_model(decision.retrieval.evidence)}\n"
-                "VERIFIED KNOWLEDGE EVIDENCE END\n"
-                "Use authoritative facts only from this evidence. If it does not support a "
-                "detail, say that it is not yet available in Sahayak AI's knowledge base. "
-                "Do not name sources, citations, or URLs aloud."
+                "OFFICIAL EVIDENCE END\n"
+                "Answer using the facts from this evidence. If a specific detail isn't covered, "
+                "say you can help with general information about that topic. "
+                "NEVER mention 'sources', 'knowledge base', 'database', or 'citations' in speech. "
+                "Speak naturally as if you simply know this information."
             )
         else:
             instructions = (
-                "GENERAL GUIDANCE MODE - No verified official sources found.\n"
-                "You may provide helpful general guidance using your knowledge, BUT you must:\n"
-                "1. Clearly label it as 'general guidance' or 'generally, the process...'\n"
-                "2. NEVER present it as official verified information\n"
-                "3. NEVER claim specific current deadlines, amounts, or eligibility without evidence\n"
-                "4. NEVER redirect users to external websites or portals\n"
-                "5. Keep guidance educational and conversational\n"
-                "6. If asked about schemes, explain general types of support that exist without inventing specific ones\n"
-                "Visual note: The UI will show 'General Guidance - Not from official verified sources' "
-                "instead of source citations for this response."
+                "GENERAL RESPONSE MODE\n"
+                "Provide helpful information using your knowledge. Guidelines:\n"
+                "1. Answer naturally without prefacing with 'generally' unless contextually appropriate\n"
+                "2. Don't claim specific current amounts, deadlines, or eligibility criteria as facts\n"
+                "3. NEVER redirect to websites or portals\n"
+                "4. NEVER mention 'knowledge base', 'database', 'verified sources', or 'official information'\n"
+                "5. Keep responses conversational and helpful\n"
+                "6. If asked about schemes, describe what typically exists\n"
+                "The UI handles marking this as general guidance - you just provide helpful answers."
             )
 
         if scheme_result is not None and scheme_result.page.items and not decision.requires_abstention:

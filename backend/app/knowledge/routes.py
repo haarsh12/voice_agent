@@ -7,7 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,7 @@ from app.config.settings import Settings, get_settings
 from app.knowledge.repository import KnowledgeRepository
 from app.knowledge.vectors import QdrantVectorStore, VectorStoreError
 
-router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge base"])
+router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 _logger = logging.getLogger("sahayak.knowledge.public_status")
 _status_limiter = SlidingWindowRateLimiter(max_requests=60, window_seconds=60)
 _vector_summary_lock = asyncio.Lock()
@@ -117,6 +117,67 @@ async def _vector_summary(settings: Settings) -> tuple[str, int | None]:
                 result = ("unavailable", None)
         _vector_summary_cache = (now, *result)
         return result
+
+
+class KnowledgeBaseDocumentListResponse(BaseModel):
+    """Paginated document list for mobile app."""
+    documents: list[KnowledgeBaseDocumentSummary]
+    total: int
+    page: int
+    limit: int
+    has_more: bool
+
+
+@router.get("", response_model=dict)
+async def get_knowledge_base_summary(
+    request: Request,
+    session: AsyncSession = Depends(get_auth_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Summary statistics for knowledge base - mobile app compatible."""
+    
+    client_host = request.client.host if request.client else "unknown"
+    _status_limiter.check("public-knowledge-base", client_host)
+    snapshot = await KnowledgeRepository(session).admin_dashboard_snapshot()
+    vector_status, vector_point_count = await _vector_summary(settings)
+    
+    return {
+        "official_sources": int(snapshot["source_count"]),
+        "current_documents": int(snapshot["current_document_count"]),
+        "knowledge_chunks": int(snapshot["chunk_count"]),
+        "vector_index": vector_status,
+    }
+
+
+@router.get("/documents", response_model=KnowledgeBaseDocumentListResponse)
+async def list_knowledge_documents(
+    page: int = Query(default=1, ge=1, le=1000),
+    limit: int = Query(default=15, ge=1, le=50),
+    request: Request = None,  # type: ignore[assignment]
+    session: AsyncSession = Depends(get_auth_session),
+    settings: Settings = Depends(get_settings),
+) -> KnowledgeBaseDocumentListResponse:
+    """Paginated list of knowledge documents for mobile app."""
+    
+    client_host = request.client.host if request.client else "unknown"
+    _status_limiter.check("knowledge-documents", client_host)
+    
+    snapshot = await KnowledgeRepository(session).admin_dashboard_snapshot()
+    all_documents = snapshot["recent_documents"]
+    
+    # Calculate pagination
+    offset = (page - 1) * limit
+    total = len(all_documents)
+    paginated_docs = all_documents[offset:offset + limit]
+    has_more = (offset + limit) < total
+    
+    return KnowledgeBaseDocumentListResponse(
+        documents=[KnowledgeBaseDocumentSummary.model_validate(doc) for doc in paginated_docs],
+        total=total,
+        page=page,
+        limit=limit,
+        has_more=has_more,
+    )
 
 
 @router.get("/status", response_model=KnowledgeBaseStatusResponse)
