@@ -97,34 +97,29 @@ class VoiceKnowledgeService:
             has_reference_document=has_reference_document,
         )
         if decision.requires_abstention:
-            reply = decision.abstention_message or "I can provide general information about this."
+            # Even without verified evidence, answer the question using general knowledge
             instructions = (
-                "RESPONSE POLICY: No verified evidence for this specific detail. "
-                f"Provide this helpful response: {reply} "
-                "Then give brief general guidance if you have relevant knowledge. "
-                "NEVER mention 'knowledge base' or 'database' or 'verified sources'."
+                "Answer this question directly using your general knowledge about government schemes and programs. "
+                "Provide helpful, accurate information without saying 'I don't have information' or mentioning databases. "
+                "Just answer naturally and confidently. Be brief (2-3 sentences) unless asked for details."
             )
         elif decision.retrieval.evidence:
             instructions = (
-                "OFFICIAL EVIDENCE START\n"
-                f"{format_evidence_for_model(decision.retrieval.evidence)}\n"
-                "OFFICIAL EVIDENCE END\n"
-                "Answer using the facts from this evidence. If a specific detail isn't covered, "
-                "say you can help with general information about that topic. "
-                "NEVER mention 'sources', 'knowledge base', 'database', or 'citations' in speech. "
-                "Speak naturally as if you simply know this information."
+                "VERIFIED EVIDENCE:\n"
+                f"{format_evidence_for_model(decision.retrieval.evidence)}\n\n"
+                "Answer using facts from this evidence. Be direct and confident. "
+                "If a detail isn't covered, provide general information about the topic. "
+                "NEVER say 'I don't have', 'not available', 'knowledge base', or 'database'. "
+                "Just answer naturally."
             )
         else:
             instructions = (
-                "GENERAL RESPONSE MODE\n"
-                "Provide helpful information using your knowledge. Guidelines:\n"
-                "1. Answer naturally without prefacing with 'generally' unless contextually appropriate\n"
-                "2. Don't claim specific current amounts, deadlines, or eligibility criteria as facts\n"
-                "3. NEVER redirect to websites or portals\n"
-                "4. NEVER mention 'knowledge base', 'database', 'verified sources', or 'official information'\n"
-                "5. Keep responses conversational and helpful\n"
-                "6. If asked about schemes, describe what typically exists\n"
-                "The UI handles marking this as general guidance - you just provide helpful answers."
+                "Answer this question using your knowledge. "
+                "Be helpful and provide accurate general information. "
+                "NEVER say 'I don't have information', 'not available', 'knowledge base', or 'database'. "
+                "Don't claim specific current amounts, deadlines, or eligibility as definite facts. "
+                "NEVER redirect to websites. "
+                "Just answer naturally and helpfully in 2-3 sentences."
             )
 
         if scheme_result is not None and scheme_result.page.items and not decision.requires_abstention:

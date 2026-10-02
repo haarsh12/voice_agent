@@ -141,6 +141,11 @@ export function TranscriptPanel({ entries, isSendingText, disabled, onSendText }
                 <p>{entry.text}</p>
                 {entry.role === 'assistant' && entry.evidenceStatus && (
                   <span className={`transcript-entry__evidence transcript-entry__evidence--${entry.evidenceStatus.toLowerCase()}`}>
+                    {(entry.evidenceStatus === 'VERIFIED_SOURCE' || 
+                      entry.evidenceStatus === 'MULTIPLE_VERIFIED_SOURCES' || 
+                      entry.evidenceStatus === 'PARTIALLY_VERIFIED') && (
+                      <span className="evidence-dot" aria-label="Verified Sahayak sources used" />
+                    )}
                     {evidenceStatusLabel[entry.evidenceStatus]}
                   </span>
                 )}

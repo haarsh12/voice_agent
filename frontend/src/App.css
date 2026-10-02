@@ -179,7 +179,8 @@ textarea { background-color: var(--surface); }
 .site-footer { border-color: var(--line); color: #73756f; }
 
 .transcript-entry__sources { display: grid; gap: 7px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(54,92,78,.18); }
-.transcript-entry__evidence { display: inline-flex; width: fit-content; margin-top: 9px; padding: 4px 8px; border-radius: 999px; color: #32634f; background: #e5f2eb; font-size: .65rem; font-weight: 780; letter-spacing: .035em; text-transform: uppercase; }
+.transcript-entry__evidence { display: inline-flex; align-items: center; gap: 5px; width: fit-content; margin-top: 9px; padding: 4px 8px; border-radius: 999px; color: #32634f; background: #e5f2eb; font-size: .65rem; font-weight: 780; letter-spacing: .035em; text-transform: uppercase; }
+.evidence-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px rgba(34, 197, 94, .2); }
 .transcript-entry__evidence--general_model_knowledge { color: #586766; background: #edf1f0; }
 .transcript-entry__evidence--insufficient_evidence, .transcript-entry__evidence--partially_verified { color: #8a5b12; background: #fff4d9; }
 .transcript-entry__sources > span { color: #587267; font-size: .64rem; font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
