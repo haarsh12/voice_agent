@@ -1,510 +1,372 @@
 # Sahayak AI — Raspberry Pi Physical Kiosk Server
-# Hardware API Gateway + Chromium UI Backend + Backend Proxy
 #
-# Responsibilities:
-#   • Serves the full-featured Chromium touch UI (templates/index.html)
-#   • Proxies all backend API calls with X-Sahayak-Device: raspberrypi header
-#   • Manages hardware: microphone (ALSA VAD/PTT), speaker (TTS), camera (MJPEG/Face)
-#   • Provides Server-Sent Events stream for volume/transcript UI updates
+# What this does:
+#   1. Serves the production React build from ./static/ — 100% identical to the website
+#   2. Proxies every /api/* call to the central backend with X-Sahayak-Device: raspberrypi
+#   3. Optionally runs OpenCV face-recognition HUD (only if ENABLE_FACE_HUD=true)
+#   4. Exposes /video_feed (MJPEG) and /api/hardware_status for the UI status bar
+#
+# Works on both Raspberry Pi (production) and Windows laptop (for UI testing).
+#
+# Build the React UI first (run on dev machine, re-run after frontend changes):
+#   cd frontend && npm run build:kiosk
 
-import os
-import sys
 import time
-import json
-import queue
 import logging
-import subprocess
 import requests
-from datetime import datetime
-from flask import Flask, render_template, Response, jsonify, request, stream_with_context
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 import config
-from stt_service import STTService
-from audio_capture import HybridAudioCapturer
-from face_service import FaceService, CameraStreamThread
 
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
 # Logging
-# ──────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S"
+    datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("SahayakKioskServer")
+logger = logging.getLogger("KioskServer")
 
-# ──────────────────────────────────────────────
-# Flask App
-# ──────────────────────────────────────────────
-app = Flask(__name__)
+# ──────────────────────────────────────────────────────────────────────────────
+# Flask app — serves the compiled React build from ./static/
+# ──────────────────────────────────────────────────────────────────────────────
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# Queue for SSE events to the Chromium UI (volume, transcripts)
-event_queue: queue.Queue = queue.Queue(maxsize=200)
+app = Flask(__name__, static_folder=None)
 
-# Header identifying this device to the backend
-DEVICE_HEADER = {"X-Sahayak-Device": "raspberrypi"}
+# Every proxied request to the backend carries this header
+DEVICE_HEADER = {"X-Sahayak-Device": "raspberry-pi"}
 
-# ──────────────────────────────────────────────
-# Hardware Service Instances
-# ──────────────────────────────────────────────
-stt_engine = STTService(sample_rate=config.TARGET_SAMPLE_RATE)
-face_service = FaceService(models_dir=config.MODELS_DIR, db_path=config.DB_PATH)
-camera_thread = CameraStreamThread(camera_id=config.CAMERA_INDEX, face_service=face_service)
+# ──────────────────────────────────────────────────────────────────────────────
+# Camera — OpenCV face recognition HUD (optional)
+#
+# Default: ENABLE_FACE_HUD=false in config.env
+#   → camera stays free for the browser to use via getUserMedia (document scanning)
+#
+# Set ENABLE_FACE_HUD=true only if you have a SECOND camera dedicated to face
+# recognition. Running OpenCV on the same camera as the browser will block
+# document scanning in the React UI.
+# ──────────────────────────────────────────────────────────────────────────────
+camera_thread = None
 
-
-# ──────────────────────────────────────────────
-# Guest Session Cache (for STT/text-chat fallback)
-# ──────────────────────────────────────────────
-_guest_session: dict | None = None
-
-
-def get_or_create_backend_guest_session() -> dict | None:
-    """Returns or creates a guest session with the central backend."""
-    global _guest_session
-    if _guest_session:
-        return _guest_session
-
-    backend_url = config.BACKEND_SERVER_URL.rstrip("/")
+if config.ENABLE_FACE_HUD:
     try:
-        logger.info(f"Creating kiosk guest session at {backend_url}/api/guest-sessions")
-        res = requests.post(
-            f"{backend_url}/api/guest-sessions",
-            headers=DEVICE_HEADER,
-            timeout=8,
+        from face_service import FaceService, CameraStreamThread
+        _face_svc = FaceService(models_dir=config.MODELS_DIR, db_path=config.DB_PATH)
+        camera_thread = CameraStreamThread(
+            camera_id=config.CAMERA_INDEX, face_service=_face_svc
         )
-        if res.status_code in (200, 201):
-            _guest_session = res.json()
-            logger.info(f"Guest session created: {_guest_session.get('session_id')}")
-            return _guest_session
-        logger.warning(f"Guest session error ({res.status_code}): {res.text[:200]}")
+        logger.info("Face recognition HUD enabled on camera %d", config.CAMERA_INDEX)
     except Exception as exc:
-        logger.warning(f"Cannot reach backend for guest session: {exc}")
-    return None
+        logger.warning("Face HUD disabled — could not load face_service: %s", exc)
+else:
+    logger.info("Face HUD disabled (ENABLE_FACE_HUD=false) — camera free for browser")
 
 
-# ──────────────────────────────────────────────
-# Voice Query Pipeline (STT-based, hardware mic)
-# ──────────────────────────────────────────────
-def _push_event(payload: dict) -> None:
-    """Non-blocking push to SSE event queue."""
-    try:
-        event_queue.put_nowait(payload)
-    except queue.Full:
-        pass
+# ══════════════════════════════════════════════════════════════════════════════
+# React SPA — serve the built frontend
+#
+# Vite outputs:
+#   static/index.html          — entry point
+#   static/assets/*.js / *.css — hashed bundles
+#
+# All real files are served directly.
+# Everything else falls through to index.html so React Router works.
+# /api/* routes below are matched first by Flask before this catch-all.
+# ══════════════════════════════════════════════════════════════════════════════
 
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve_react_app(path: str):
+    if path:
+        target = STATIC_DIR / path
+        if target.exists() and target.is_file():
+            return send_from_directory(str(STATIC_DIR), path)
 
-def send_transcript_to_backend(text: str) -> str | None:
-    """Forward a transcribed utterance to the backend /api/chat endpoint."""
-    if not text or text.startswith("["):
-        return None
-
-    session = get_or_create_backend_guest_session()
-    backend_url = config.BACKEND_SERVER_URL.rstrip("/")
-
-    form_data: dict = {
-        "message": text,
-        "language": config.STT_LANGUAGE,
-    }
-    if session:
-        form_data["guest_session_id"] = session.get("session_id", "")
-        form_data["guest_session_secret"] = session.get("session_secret", "")
-
-    try:
-        logger.info(f"Forwarding STT query to backend: {text!r}")
-        res = requests.post(
-            f"{backend_url}/api/chat",
-            data=form_data,
-            headers=DEVICE_HEADER,
-            timeout=15,
+    index = STATIC_DIR / "index.html"
+    if not index.exists():
+        return (
+            "<h1>Kiosk UI not built</h1>"
+            "<p>Run <code>cd frontend &amp;&amp; npm run build:kiosk</code> "
+            "on your dev machine, then copy <code>physical_kiosk_raspberrypi/static/</code> "
+            "to the Pi.</p>",
+            503,
         )
-        if res.status_code == 200:
-            data = res.json()
-            return data.get("message") or data.get("response") or data.get("reply") or data.get("text")
-        logger.warning(f"Backend chat returned {res.status_code}: {res.text[:200]}")
-    except Exception as exc:
-        logger.warning(f"Backend chat unreachable: {exc}")
-    return None
+    return send_from_directory(str(STATIC_DIR), "index.html")
 
 
-def speak_text(text: str) -> None:
-    """Synthesize speech via espeak-ng and play through ALSA speaker."""
-    if not text or text.startswith("["):
-        return
-    logger.info(f"🔊 TTS → '{text[:80]}'")
-    try:
-        wav_path = "/tmp/sahayak_tts.wav"
-        result = subprocess.run(
-            ["espeak-ng", "-v", "en-us", "-a", "200", "-s", "140", "-w", wav_path, text],
-            capture_output=True, timeout=8,
-        )
-        if result.returncode == 0 and os.path.exists(wav_path):
-            play = subprocess.run(
-                ["aplay", "-D", config.ALSA_PLAYBACK_DEVICE, wav_path],
-                capture_output=True, timeout=12,
-            )
-            if play.returncode != 0:
-                # Fallback to Google voice card default
-                subprocess.run(
-                    ["aplay", "-D", "plughw:CARD=sndrpigooglevoi,DEV=0", wav_path],
-                    capture_output=True, timeout=12,
-                )
-    except Exception as exc:
-        logger.warning(f"TTS playback error: {exc}")
+# ══════════════════════════════════════════════════════════════════════════════
+# Backend Proxy — /api/* → central FastAPI backend + X-Sahayak-Device: raspberrypi
+#
+# The React app calls /api/* on the same origin (this Flask server, port 5000).
+# Flask forwards everything to BACKEND_SERVER_URL, always adding the device header.
+# The backend URL and all secrets never appear in the browser.
+# ══════════════════════════════════════════════════════════════════════════════
 
-
-def process_voice_query(transcript: str, timestamp_str: str) -> None:
-    """Handle a recognized mic utterance: push to UI, query backend, speak reply."""
-    if not transcript or transcript.startswith("["):
-        return
-
-    _push_event({"type": "transcript", "sender": "user", "timestamp": timestamp_str, "text": transcript})
-
-    ai_reply = send_transcript_to_backend(transcript)
-    if not ai_reply:
-        ai_reply = f"Recognized: '{transcript}'. Connecting to Sahayak AI."
-
-    _push_event({
-        "type": "transcript",
-        "sender": "assistant",
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "text": ai_reply,
-    })
-    speak_text(ai_reply)
-
-
-def on_auto_speech_captured(pcm16_bytes: bytes, volume: float) -> None:
-    """VAD callback: transcribe auto-detected speech and process the query."""
-    if not pcm16_bytes:
-        return
-    logger.info("Auto VAD: transcribing captured mic audio...")
-    transcript = stt_engine.transcribe_pcm16_chunk(pcm16_bytes)
-    if transcript:
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(f"\n{'='*55}\n 🎙️  [{ts}] AUTO VAD: \"{transcript}\"\n{'='*55}\n", flush=True)
-        process_voice_query(transcript, ts)
-
-
-# ──────────────────────────────────────────────
-# Audio Capturer
-# ──────────────────────────────────────────────
-audio_capturer = HybridAudioCapturer(
-    callback=on_auto_speech_captured,
-    alsa_device=config.ALSA_RECORD_DEVICE,
-    sample_rate=config.SAMPLE_RATE,
-    channels=config.CHANNELS,
-    bit_depth=config.BIT_DEPTH,
-)
-
-
-# ══════════════════════════════════════════════
-# Flask Routes — UI
-# ══════════════════════════════════════════════
-
-@app.route("/")
-def index():
-    """Serve the Chromium kiosk SPA."""
-    return render_template(
-        "index.html",
-        backend_url=config.BACKEND_SERVER_URL,
-        alsa_device=config.ALSA_RECORD_DEVICE,
-    )
-
-
-# ══════════════════════════════════════════════
-# Flask Routes — Backend API Proxy
-# All calls add X-Sahayak-Device: raspberrypi and forward to the backend.
-# The Chromium UI calls these /api/kiosk/* endpoints instead of the backend
-# directly so that no backend URL or credentials ever appear in the page.
-# ══════════════════════════════════════════════
-
-def _backend(path: str) -> str:
+def _backend_url(path: str) -> str:
     return f"{config.BACKEND_SERVER_URL.rstrip('/')}{path}"
 
 
-def _proxy_headers(extra: dict | None = None) -> dict:
-    """Build forwarded headers: merge device header + any caller extras."""
-    hdrs = dict(DEVICE_HEADER)
-    # Forward cookies from the Chromium request so authenticated sessions work
-    if request.cookies:
-        hdrs["Cookie"] = "; ".join(f"{k}={v}" for k, v in request.cookies.items())
-    if extra:
-        hdrs.update(extra)
-    return hdrs
-
-
-@app.route("/api/kiosk/config")
-def kiosk_config():
-    """Return kiosk-specific configuration for the Chromium UI."""
-    return jsonify({
-        "agent_name": config.AGENT_NAME,
-        "default_language": config.STT_LANGUAGE,
-        "backend_url": config.BACKEND_SERVER_URL,  # NOT exposed to UI directly; included for debug
-    })
-
-
-@app.route("/api/kiosk/token")
-def kiosk_token():
-    """
-    Proxy the LiveKit token endpoint to the backend with the raspberrypi
-    device identifier added.  The UI calls this instead of the backend
-    directly so the backend URL never appears in the browser source.
-    """
-    # Forward all query params from the Chromium page
-    params = dict(request.args)
-    params["client_device"] = "raspberrypi"  # ensure correct device flag
-
+def _forward(method: str, path: str, **kwargs) -> Response:
+    """Forward a request to the backend and relay the response verbatim."""
+    extra_headers = kwargs.pop("extra_headers", {})
+    timeout = kwargs.pop("timeout", 20)
     try:
-        res = requests.get(
-            _backend("/api/token"),
-            params=params,
-            headers=_proxy_headers(),
-            timeout=10,
+        res = requests.request(
+            method,
+            _backend_url(path),
+            headers={**DEVICE_HEADER, **extra_headers},
+            timeout=timeout,
+            **kwargs,
         )
         return Response(
             res.content,
             status=res.status_code,
             content_type=res.headers.get("Content-Type", "application/json"),
         )
+    except requests.exceptions.ConnectionError:
+        logger.warning("Backend unreachable: %s %s", method, path)
+        return jsonify({"detail": "Backend server is unreachable"}), 503
     except Exception as exc:
-        logger.error(f"Token proxy error: {exc}")
-        return jsonify({"detail": "LiveKit token service unreachable"}), 503
+        logger.error("Proxy error %s %s: %s", method, path, exc)
+        return jsonify({"detail": str(exc)}), 503
 
 
-@app.route("/api/kiosk/guest-session", methods=["POST"])
-def kiosk_guest_session():
-    """Proxy guest session creation to the backend with raspberrypi device header."""
-    try:
-        res = requests.post(
-            _backend("/api/guest-sessions"),
-            headers=_proxy_headers(),
-            timeout=8,
-        )
-        return Response(
-            res.content,
-            status=res.status_code,
-            content_type=res.headers.get("Content-Type", "application/json"),
-        )
-    except Exception as exc:
-        logger.error(f"Guest session proxy error: {exc}")
-        return jsonify({"detail": "Backend guest session service unreachable"}), 503
+# ── LiveKit token ─────────────────────────────────────────────────────────────
+@app.route("/api/token")
+def proxy_token():
+    params = {**request.args, "client_device": "raspberry-pi"}
+    return _forward("GET", "/api/token", params=params)
 
 
-@app.route("/api/kiosk/chat", methods=["POST"])
-def kiosk_chat():
-    """
-    Proxy text-chat (and document upload) to the backend /api/chat endpoint.
-    Accepts multipart/form-data from the Chromium UI.
-    """
-    try:
-        files = {}
-        if "document" in request.files:
-            f = request.files["document"]
-            files["document"] = (f.filename, f.stream, f.content_type)
-
-        res = requests.post(
-            _backend("/api/chat"),
-            data=request.form.to_dict(),
-            files=files if files else None,
-            headers=_proxy_headers(),
-            timeout=30,
-        )
-        return Response(
-            res.content,
-            status=res.status_code,
-            content_type=res.headers.get("Content-Type", "application/json"),
-        )
-    except Exception as exc:
-        logger.error(f"Chat proxy error: {exc}")
-        return jsonify({"detail": "Backend chat service unreachable"}), 503
+# ── Health ────────────────────────────────────────────────────────────────────
+@app.route("/api/health")
+def proxy_health():
+    return _forward("GET", "/api/health", timeout=5)
 
 
-@app.route("/api/kiosk/health")
-def kiosk_health_proxy():
-    """Proxy backend health check."""
-    try:
-        res = requests.get(_backend("/api/health"), headers=_proxy_headers(), timeout=5)
-        return Response(
-            res.content,
-            status=res.status_code,
-            content_type=res.headers.get("Content-Type", "application/json"),
-        )
-    except Exception as exc:
-        logger.warning(f"Health proxy error: {exc}")
-        return jsonify({"configured": False, "error": str(exc)}), 503
+# ── Auth / WebAuthn ───────────────────────────────────────────────────────────
+@app.route("/api/auth/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+def proxy_auth(subpath: str):
+    return _forward(
+        request.method, f"/api/auth/{subpath}",
+        params=request.args,
+        json=request.get_json(silent=True),
+    )
 
 
-@app.route("/api/kiosk/schemes")
-def kiosk_schemes_proxy():
-    """Proxy scheme search to the backend."""
-    try:
-        res = requests.get(
-            _backend("/api/schemes"),
-            params=request.args,
-            headers=_proxy_headers(),
-            timeout=12,
-        )
-        return Response(
-            res.content,
-            status=res.status_code,
-            content_type=res.headers.get("Content-Type", "application/json"),
-        )
-    except Exception as exc:
-        logger.error(f"Schemes proxy error: {exc}")
-        return jsonify({"detail": "Schemes service unreachable"}), 503
+# ── Guest sessions ────────────────────────────────────────────────────────────
+@app.route("/api/guest-sessions", methods=["POST"])
+def proxy_guest_sessions_create():
+    return _forward("POST", "/api/guest-sessions")
 
 
-@app.route("/api/kiosk/grievances", methods=["GET", "POST"])
-def kiosk_grievances_proxy():
-    """Proxy grievance list/create to the backend."""
-    try:
-        if request.method == "GET":
-            res = requests.get(
-                _backend("/api/grievances"),
-                params=request.args,
-                headers=_proxy_headers(),
-                timeout=10,
-            )
-        else:
-            res = requests.post(
-                _backend("/api/grievances"),
-                json=request.get_json(silent=True),
-                headers=_proxy_headers({"Content-Type": "application/json"}),
-                timeout=15,
-            )
-        return Response(
-            res.content,
-            status=res.status_code,
-            content_type=res.headers.get("Content-Type", "application/json"),
-        )
-    except Exception as exc:
-        logger.error(f"Grievances proxy error: {exc}")
-        return jsonify({"detail": "Grievances service unreachable"}), 503
+@app.route("/api/guest-sessions/<session_id>", methods=["DELETE"])
+def proxy_guest_sessions_delete(session_id: str):
+    return _forward("DELETE", f"/api/guest-sessions/{session_id}")
 
 
-# ══════════════════════════════════════════════
-# Flask Routes — Hardware APIs
-# ══════════════════════════════════════════════
+# ── Chat + document upload ────────────────────────────────────────────────────
+@app.route("/api/chat", methods=["POST"])
+def proxy_chat():
+    files = {}
+    if "document" in request.files:
+        f = request.files["document"]
+        files["document"] = (f.filename, f.stream, f.content_type)
+    return _forward(
+        "POST", "/api/chat",
+        data=request.form.to_dict(),
+        files=files or None,
+        timeout=30,
+    )
+
+
+# ── Profile ───────────────────────────────────────────────────────────────────
+@app.route("/api/profile", methods=["GET", "PUT"])
+def proxy_profile():
+    if request.method == "GET":
+        return _forward("GET", "/api/profile", params=request.args)
+    return _forward(
+        "PUT", "/api/profile",
+        json=request.get_json(silent=True),
+        extra_headers={"Content-Type": "application/json"},
+    )
+
+
+# ── Schemes ───────────────────────────────────────────────────────────────────
+@app.route("/api/schemes", methods=["GET"])
+def proxy_schemes():
+    return _forward("GET", "/api/schemes", params=request.args, timeout=12)
+
+
+@app.route("/api/schemes/filters", methods=["GET"])
+def proxy_scheme_filters():
+    return _forward("GET", "/api/schemes/filters", params=request.args)
+
+
+@app.route("/api/schemes/<slug>", methods=["GET"])
+def proxy_scheme_detail(slug: str):
+    return _forward("GET", f"/api/schemes/{slug}")
+
+
+# ── Grievances ────────────────────────────────────────────────────────────────
+@app.route("/api/grievances", methods=["GET", "POST"])
+def proxy_grievances():
+    if request.method == "GET":
+        return _forward("GET", "/api/grievances", params=request.args)
+    return _forward(
+        "POST", "/api/grievances",
+        json=request.get_json(silent=True),
+        extra_headers={"Content-Type": "application/json"},
+    )
+
+
+@app.route("/api/grievances/<grievance_id>", methods=["GET", "PUT", "DELETE"])
+def proxy_grievance_detail(grievance_id: str):
+    return _forward(
+        request.method, f"/api/grievances/{grievance_id}",
+        json=request.get_json(silent=True),
+    )
+
+
+# ── Knowledge Base ────────────────────────────────────────────────────────────
+@app.route("/api/knowledge-base/upload", methods=["POST"])
+def proxy_kb_upload():
+    files = {}
+    if "file" in request.files:
+        f = request.files["file"]
+        files["file"] = (f.filename, f.stream, f.content_type)
+    return _forward(
+        "POST", "/api/knowledge-base/upload",
+        data=request.form.to_dict(),
+        files=files or None,
+        timeout=60,
+    )
+
+
+@app.route("/api/knowledge-base/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE"])
+def proxy_kb(subpath: str):
+    return _forward(
+        request.method, f"/api/knowledge-base/{subpath}",
+        params=request.args,
+        json=request.get_json(silent=True),
+    )
+
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+@app.route("/api/admin/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE"])
+def proxy_admin(subpath: str):
+    return _forward(
+        request.method, f"/api/admin/{subpath}",
+        params=request.args,
+        json=request.get_json(silent=True),
+    )
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+@app.route("/api/notifications", methods=["GET"])
+def proxy_notifications():
+    return _forward("GET", "/api/notifications", params=request.args)
+
+
+@app.route("/api/notifications/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE"])
+def proxy_notifications_sub(subpath: str):
+    return _forward(
+        request.method, f"/api/notifications/{subpath}",
+        params=request.args,
+        json=request.get_json(silent=True),
+    )
+
+
+# ── Documents ─────────────────────────────────────────────────────────────────
+@app.route("/api/documents", methods=["GET", "POST"])
+def proxy_documents():
+    if request.method == "GET":
+        return _forward("GET", "/api/documents", params=request.args)
+    files = {}
+    if "file" in request.files:
+        f = request.files["file"]
+        files["file"] = (f.filename, f.stream, f.content_type)
+    return _forward(
+        "POST", "/api/documents",
+        data=request.form.to_dict(),
+        files=files or None,
+        timeout=30,
+    )
+
+
+@app.route("/api/documents/<path:subpath>", methods=["GET", "PUT", "DELETE"])
+def proxy_documents_sub(subpath: str):
+    return _forward(
+        request.method, f"/api/documents/{subpath}",
+        params=request.args,
+        json=request.get_json(silent=True),
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Hardware status + optional camera MJPEG feed
+# ══════════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/hardware_status")
 def hardware_status():
-    """Returns hardware + backend connectivity status for the UI status bar."""
-    backend_online = False
+    """Kiosk device + backend connectivity status for the UI status bar."""
+    backend_ok = False
     try:
-        res = requests.get(_backend("/api/health"), headers=DEVICE_HEADER, timeout=3)
-        backend_online = res.status_code == 200
+        res = requests.get(_backend_url("/api/health"), headers=DEVICE_HEADER, timeout=3)
+        backend_ok = res.status_code == 200
     except Exception:
         pass
 
     return jsonify({
-        "status": "online",
         "device": "raspberrypi",
+        "backend_connected": backend_ok,
         "backend_url": config.BACKEND_SERVER_URL,
-        "backend_connected": backend_online,
-        "mic": config.ALSA_RECORD_DEVICE,
-        "speaker": config.ALSA_PLAYBACK_DEVICE,
-        "camera_active": camera_thread.is_running,
-        "audio_capturer_active": audio_capturer.is_running,
+        "face_hud_active": camera_thread is not None and camera_thread.is_running,
     })
-
-
-@app.route("/start_recording", methods=["POST"])
-def start_recording():
-    """Start push-to-talk recording on the hardware mic."""
-    audio_capturer.start_button_recording()
-    return jsonify({"status": "recording_started", "message": "Listening..."})
-
-
-@app.route("/stop_recording", methods=["POST"])
-def stop_recording():
-    """Stop push-to-talk recording, transcribe, and forward to backend."""
-    pcm16_bytes = audio_capturer.stop_button_recording()
-
-    if not pcm16_bytes:
-        return jsonify({"status": "empty", "transcript": "[No speech recorded]"})
-
-    logger.info(f"Transcribing {len(pcm16_bytes)} bytes of push-to-talk audio...")
-    transcript = stt_engine.transcribe_pcm16_chunk(pcm16_bytes)
-    ts = datetime.now().strftime("%H:%M:%S")
-
-    if not transcript:
-        transcript = "[Could not recognize speech]"
-
-    print(f"\n{'='*55}\n 🎙️  [{ts}] PTT: \"{transcript}\"\n{'='*55}\n", flush=True)
-
-    if not transcript.startswith("["):
-        process_voice_query(transcript, ts)
-
-    return jsonify({"status": "success", "timestamp": ts, "transcript": transcript})
-
-
-@app.route("/stream")
-def stream():
-    """SSE stream: volume meter updates and transcript events to Chromium UI."""
-    def event_generator():
-        last_vol_time = 0.0
-        while True:
-            # Drain queued events first
-            try:
-                data = event_queue.get(timeout=0.15)
-                yield f"data: {json.dumps(data)}\n\n"
-            except queue.Empty:
-                pass
-
-            # Throttled volume update
-            now = time.time()
-            if now - last_vol_time >= 0.15:
-                last_vol_time = now
-                yield f"data: {json.dumps({'type': 'volume', 'level': audio_capturer.current_volume, 'is_recording': audio_capturer.is_button_recording})}\n\n"
-
-    return Response(
-        stream_with_context(event_generator()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
 
 
 @app.route("/video_feed")
 def video_feed():
-    """MJPEG camera stream (used for face HUD display, not document capture)."""
-    def generate_frames():
+    """MJPEG stream of the OpenCV face recognition HUD (only when ENABLE_FACE_HUD=true)."""
+    if camera_thread is None:
+        return jsonify({"detail": "Face HUD not enabled (ENABLE_FACE_HUD=false)"}), 404
+
+    def frames():
         while True:
-            frame_bytes = camera_thread.get_mjpeg_frame()
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-            )
-            time.sleep(0.033)  # ~30 fps
+            frame = camera_thread.get_mjpeg_frame()
+            yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+            time.sleep(0.033)
 
-    return Response(
-        generate_frames(),
-        mimetype="multipart/x-mixed-replace; boundary=frame",
-    )
+    return Response(frames(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
-# ══════════════════════════════════════════════
-# Main Entry Point
-# ══════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# Entry point
+# ══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
-    logger.info("=" * 60)
-    logger.info(" Sahayak AI — Raspberry Pi Physical Kiosk Server")
-    logger.info("=" * 60)
-    logger.info(f"  Backend URL   : {config.BACKEND_SERVER_URL}")
-    logger.info(f"  Agent Name    : {config.AGENT_NAME}")
-    logger.info(f"  Record Device : {config.ALSA_RECORD_DEVICE}")
-    logger.info(f"  Playback Dev  : {config.ALSA_PLAYBACK_DEVICE}")
-    logger.info(f"  Kiosk Port    : {config.PORT}")
-    logger.info("=" * 60)
+    logger.info("=" * 58)
+    logger.info("  Sahayak AI — Raspberry Pi Physical Kiosk Server")
+    logger.info("=" * 58)
+    logger.info("  Backend  : %s", config.BACKEND_SERVER_URL)
+    logger.info("  Agent    : %s", config.AGENT_NAME)
+    logger.info("  Port     : %s", config.PORT)
+    logger.info("  UI dir   : %s", STATIC_DIR)
+    logger.info("  Face HUD : %s", "enabled" if camera_thread else "disabled")
 
-    # Warm up guest session
-    get_or_create_backend_guest_session()
+    if not (STATIC_DIR / "index.html").exists():
+        logger.warning(
+            "React build not found in static/ — "
+            "run 'cd frontend && npm run build:kiosk' on your dev machine"
+        )
+    logger.info("=" * 58)
 
-    # Start hardware subsystems
-    audio_capturer.start()
-    camera_thread.start()
+    if camera_thread:
+        camera_thread.start()
 
     try:
         app.run(
@@ -515,11 +377,11 @@ def main() -> None:
             threaded=True,
         )
     except KeyboardInterrupt:
-        logger.info("Kiosk server shutting down...")
+        logger.info("Shutting down...")
     finally:
-        audio_capturer.stop()
-        camera_thread.stop()
-        logger.info("Hardware stopped. Goodbye.")
+        if camera_thread:
+            camera_thread.stop()
+        logger.info("Goodbye.")
 
 
 if __name__ == "__main__":

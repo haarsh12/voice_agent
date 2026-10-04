@@ -33,7 +33,6 @@ import { getSchemeDetail, getSchemeFilters, getSchemes } from '../lib/api'
 import {
   BENEFICIARY_TAGS,
   SCHEME_CATEGORIES,
-  SCHEMES_CATALOGUE,
   getSchemeBySlug,
   type SchemeEntry,
 } from '../data/schemes-catalogue'

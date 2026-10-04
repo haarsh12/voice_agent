@@ -29,7 +29,8 @@ const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const apiBaseUrl = configuredApiBaseUrl ? configuredApiBaseUrl.replace(/\/$/, '') : ''
 
 export const agentName = import.meta.env.VITE_AGENT_NAME ?? 'sahayak-ai'
-const clientDevice = 'website'
+// In kiosk builds (.env.kiosk) this is 'raspberrypi'; website builds use 'website'
+const clientDevice = (import.meta.env.VITE_CLIENT_DEVICE as string | undefined) ?? 'website'
 
 function clientDeviceHeaders(): HeadersInit {
   return { 'X-Sahayak-Device': clientDevice }

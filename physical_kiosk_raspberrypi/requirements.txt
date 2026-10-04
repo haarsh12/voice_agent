@@ -1,15 +1,9 @@
-# Sahayak AI Raspberry Pi Kiosk — Python Dependencies
+# Sahayak AI Physical Kiosk — Python Dependencies
 
-# ── Core Web Server ───────────────────────────────────────────────────────────
+# Web server + backend proxy
 Flask>=2.3.0
 requests>=2.31.0
 
-# ── Google Cloud Speech (on-device STT for hardware mic pipeline) ─────────────
-google-cloud-speech>=2.21.0
-google-auth>=2.22.0
-
-# ── Computer Vision (face detection/recognition, MJPEG stream) ───────────────
+# OpenCV for face recognition HUD (background camera process)
 opencv-python>=4.8.0
-
-# ── Audio & Signal Processing ─────────────────────────────────────────────────
 numpy>=1.24.0
