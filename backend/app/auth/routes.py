@@ -63,6 +63,8 @@ def _profile_payload(account: Account) -> dict[str, object]:
         "district": account.district,
         "village_or_town": account.village_or_town,
         "address": account.address,
+        "pincode": account.pincode,
+        "caste_category": account.caste_category,
         "user_type": account.user_type,
         "cooperative_role": account.cooperative_role,
         "needs_onboarding": not account.profile_completed,
@@ -243,6 +245,8 @@ async def verify_mobile_otp(
             district=payload.registration.district,
             village_or_town=payload.registration.village_or_town,
             address=payload.registration.address,
+            pincode=payload.registration.pincode,
+            caste_category=payload.registration.caste_category,
             user_type=payload.registration.user_type,
             cooperative_role=payload.registration.cooperative_role,
             profile_completed=True,
@@ -491,7 +495,16 @@ async def update_profile(
         setattr(account, field, value)
     account.profile_completed = all(
         value is not None and bool(str(value).strip())
-        for value in (account.full_name, account.state, account.district, account.village_or_town, account.user_type)
+        for value in (
+            account.full_name,
+            account.state,
+            account.district,
+            account.village_or_town,
+            account.address,
+            account.pincode,
+            account.caste_category,
+            account.user_type,
+        )
     )
     await session.commit()
     await session.refresh(account)

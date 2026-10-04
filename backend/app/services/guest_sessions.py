@@ -29,15 +29,19 @@ MAX_AGENT_CONTEXT_CHARACTERS = 18_000
 class MemberProfile:
     """The minimum account data useful for personalized assistance.
 
-    This intentionally omits a phone number, street address, account ID, and
-    any authentication data.  The values are stored only in the same
-    short-lived, capability-protected session as the conversation.
+    This intentionally omits street address and any authentication data.
+    The values are stored only in the same short-lived, capability-protected
+    session as the conversation.
     """
 
     full_name: str | None = None
+    phone_number: str | None = None
     state: str | None = None
     district: str | None = None
     village_or_town: str | None = None
+    address: str | None = None
+    pincode: str | None = None
+    caste_category: str | None = None
     user_type: str | None = None
     cooperative_role: str | None = None
 
@@ -46,9 +50,13 @@ class MemberProfile:
         cls,
         *,
         full_name: object = None,
+        phone_number: object = None,
         state: object = None,
         district: object = None,
         village_or_town: object = None,
+        address: object = None,
+        pincode: object = None,
+        caste_category: object = None,
         user_type: object = None,
         cooperative_role: object = None,
     ) -> "MemberProfile":
@@ -56,9 +64,13 @@ class MemberProfile:
 
         return cls(
             full_name=_clean_profile_value(full_name, 120),
+            phone_number=_clean_profile_value(phone_number, 20),
             state=_clean_profile_value(state, 100),
             district=_clean_profile_value(district, 120),
             village_or_town=_clean_profile_value(village_or_town, 120),
+            address=_clean_profile_value(address, 500),
+            pincode=_clean_profile_value(pincode, 10),
+            caste_category=_clean_profile_value(caste_category, 32),
             user_type=_clean_profile_value(user_type, 48),
             cooperative_role=_clean_profile_value(cooperative_role, 120),
         )
@@ -68,9 +80,13 @@ class MemberProfile:
 
         fields = (
             ("Name", self.full_name),
+            ("Phone", self.phone_number),
             ("State", self.state),
             ("District", self.district),
             ("Village or town", self.village_or_town),
+            ("Address", self.address),
+            ("Pincode", self.pincode),
+            ("Caste category", self.caste_category),
             ("Member type", self.user_type),
             ("Cooperative role", self.cooperative_role),
         )
@@ -238,9 +254,13 @@ class GuestSessionStore:
         secret: str,
         *,
         full_name: object = None,
+        phone_number: object = None,
         state: object = None,
         district: object = None,
         village_or_town: object = None,
+        address: object = None,
+        pincode: object = None,
+        caste_category: object = None,
         user_type: object = None,
         cooperative_role: object = None,
         account_id: object = None,
@@ -253,9 +273,13 @@ class GuestSessionStore:
 
         profile = MemberProfile.create(
             full_name=full_name,
+            phone_number=phone_number,
             state=state,
             district=district,
             village_or_town=village_or_town,
+            address=address,
+            pincode=pincode,
+            caste_category=caste_category,
             user_type=user_type,
             cooperative_role=cooperative_role,
         )

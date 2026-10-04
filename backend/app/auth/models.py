@@ -24,6 +24,8 @@ class Account(AuthBase):
     address: Mapped[str | None] = mapped_column(Text)
     user_type: Mapped[str | None] = mapped_column(String(48), index=True)
     cooperative_role: Mapped[str | None] = mapped_column(String(120))
+    pincode: Mapped[str | None] = mapped_column(String(10))
+    caste_category: Mapped[str | None] = mapped_column(String(32))
     profile_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

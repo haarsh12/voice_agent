@@ -263,3 +263,9 @@ textarea { background-color: var(--surface); }
   .app-shell--voice .transcript-scroll-container { min-height: 250px; overflow-y: auto; }
   .grievance-page { padding: 32px 0 60px; }.grievance-page__header, .grievance-history__heading { align-items: flex-start; flex-direction: column; }.grievance-page__header > button { width: 100%; }.grievance-workspace { grid-template-columns: 1fr; }.grievance-guidance { order: 2; }.grievance-editor__card, .grievance-preview, .grievance-confirmed { padding: 20px; }.grievance-form-grid, .grievance-preview dl { grid-template-columns: 1fr; }.grievance-preview__description { grid-column: auto; }.grievance-reference-form { align-items: stretch; flex-direction: column; }.grievance-reference-form button { width: 100%; }.grievance-history__filters { grid-template-columns: 1fr; }.grievance-list article { grid-template-columns: 1fr; gap: 11px; }.grievance-list > button { width: 100%; }.grievance-list__status { display: flex; justify-content: space-between; align-items: center; }.grievance-editor__actions > button { flex: 1 1 190px; }
 }
+
+.auth-text-field--full { grid-column: 1 / -1; }
+.required-mark { color: var(--accent); font-weight: bold; font-style: normal; }
+.optional-mark { color: var(--muted); font-weight: normal; font-size: 0.75rem; font-style: italic; }
+.auth-required-note { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 6px; margin: 0 0 10px 0; }
+

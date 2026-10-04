@@ -17,6 +17,15 @@ UserType = Literal[
     "other",
 ]
 
+CasteCategory = Literal[
+    "general",
+    "obc",
+    "sc",
+    "st",
+    "ews",
+    "other",
+]
+
 
 def normalise_indian_phone(value: str) -> str:
     cleaned = re.sub(r"[\s()\-]", "", value)
@@ -47,8 +56,10 @@ class RegistrationProfile(BaseModel):
     state: str = Field(min_length=2, max_length=100)
     district: str = Field(min_length=2, max_length=120)
     village_or_town: str = Field(min_length=2, max_length=120)
+    address: str = Field(min_length=2, max_length=500)
+    pincode: str = Field(min_length=6, max_length=10)
+    caste_category: CasteCategory
     user_type: UserType
-    address: str | None = Field(default=None, max_length=500)
     cooperative_role: str | None = Field(default=None, max_length=120)
 
     @field_validator(
@@ -57,6 +68,7 @@ class RegistrationProfile(BaseModel):
         "district",
         "village_or_town",
         "address",
+        "pincode",
         "cooperative_role",
     )
     @classmethod
@@ -66,6 +78,14 @@ class RegistrationProfile(BaseModel):
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("This field cannot be empty.")
+        return cleaned
+
+    @field_validator("pincode")
+    @classmethod
+    def validate_pincode(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise ValueError("Pincode must be exactly 6 digits.")
         return cleaned
 
 
@@ -80,6 +100,8 @@ class ProfileUpdateRequest(BaseModel):
     district: str | None = Field(default=None, max_length=120)
     village_or_town: str | None = Field(default=None, max_length=120)
     address: str | None = Field(default=None, max_length=500)
+    pincode: str | None = Field(default=None, max_length=10)
+    caste_category: CasteCategory | None = None
     user_type: UserType | None = None
     cooperative_role: str | None = Field(default=None, max_length=120)
 
@@ -89,6 +111,7 @@ class ProfileUpdateRequest(BaseModel):
         "district",
         "village_or_town",
         "address",
+        "pincode",
         "cooperative_role",
     )
     @classmethod
@@ -100,6 +123,16 @@ class ProfileUpdateRequest(BaseModel):
             raise ValueError("This field cannot be empty.")
         return cleaned
 
+    @field_validator("pincode")
+    @classmethod
+    def validate_optional_pincode(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise ValueError("Pincode must be exactly 6 digits.")
+        return cleaned
+
 
 class ProfileResponse(BaseModel):
     full_name: str | None
@@ -108,6 +141,8 @@ class ProfileResponse(BaseModel):
     district: str | None
     village_or_town: str | None
     address: str | None
+    pincode: str | None
+    caste_category: CasteCategory | None
     user_type: UserType | None
     cooperative_role: str | None
     needs_onboarding: bool

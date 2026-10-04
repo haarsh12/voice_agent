@@ -159,6 +159,8 @@ export type OfficialSourceReference = {
   url: string
   document_version: string | null
   freshness_status: 'CURRENT' | 'SUPERSEDED' | 'EXPIRED' | 'REVIEW_REQUIRED' | 'UNKNOWN' | 'FETCH_FAILED' | 'EXTRACTION_FAILED'
+  published_at?: string
+  effective_at?: string
 }
 
 export type GuestSession = {
@@ -239,6 +241,26 @@ export const USER_TYPES = [
 
 export type UserType = (typeof USER_TYPES)[number]
 
+export const CASTE_CATEGORIES = [
+  'general',
+  'obc',
+  'sc',
+  'st',
+  'ews',
+  'other',
+] as const
+
+export type CasteCategory = (typeof CASTE_CATEGORIES)[number]
+
+export const CASTE_CATEGORY_LABELS: Record<CasteCategory, string> = {
+  general: 'General',
+  obc: 'OBC (Other Backward Class)',
+  sc: 'SC (Scheduled Caste)',
+  st: 'ST (Scheduled Tribe)',
+  ews: 'EWS (Economically Weaker Section)',
+  other: 'Other',
+}
+
 export type SahayakProfile = {
   full_name: string | null
   phone_number: string
@@ -246,6 +268,8 @@ export type SahayakProfile = {
   district: string | null
   village_or_town: string | null
   address: string | null
+  pincode: string | null
+  caste_category: CasteCategory | null
   user_type: UserType | null
   cooperative_role: string | null
   needs_onboarding: boolean
@@ -262,6 +286,8 @@ export type ProfileUpdate = {
   district?: string
   village_or_town?: string
   address?: string
+  pincode?: string
+  caste_category?: CasteCategory
   user_type?: UserType
   cooperative_role?: string
 }

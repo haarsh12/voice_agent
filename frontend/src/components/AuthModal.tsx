@@ -1,10 +1,11 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, Fingerprint, LoaderCircle, LogIn, MessageCircleMore, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Fingerprint, LoaderCircle, LogIn, MapPin, MessageCircleMore, ShieldCheck, UserRoundPlus, X } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
 import type { MobileAuthIntent, RegistrationPayload } from '../lib/api'
 import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
-import { USER_TYPES, type SahayakProfile, type UserType } from '../types/api'
+import { CASTE_CATEGORIES, CASTE_CATEGORY_LABELS, USER_TYPES, type CasteCategory, type SahayakProfile, type UserType } from '../types/api'
+import { getAllStateNames, getDistrictsByState } from '../data/indiaStatesDistricts'
 
 type AuthModalProps = {
   auth: SahayakAuth
@@ -19,6 +20,8 @@ type RegistrationDraft = {
   district: string
   village_or_town: string
   address: string
+  pincode: string
+  caste_category: CasteCategory | ''
   user_type: UserType | ''
   cooperative_role: string
 }
@@ -29,6 +32,8 @@ const emptyRegistration: RegistrationDraft = {
   district: '',
   village_or_town: '',
   address: '',
+  pincode: '',
+  caste_category: '',
   user_type: '',
   cooperative_role: '',
 }
@@ -41,6 +46,8 @@ const userTypeLabels: Record<UserType, string> = {
   rural_stakeholder: 'Rural stakeholder',
   other: 'Other rural service user',
 }
+
+const ALL_STATES = getAllStateNames()
 
 function IndianNumber({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
@@ -77,6 +84,9 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
   const [verifiedProfile, setVerifiedProfile] = useState<SahayakProfile | null>(null)
   const [deviceBiometricsAvailable, setDeviceBiometricsAvailable] = useState(false)
 
+  // Districts available based on chosen state
+  const availableDistricts = registration.state ? getDistrictsByState(registration.state) : []
+
   useEffect(() => {
     if (!secondsLeft) return
     const timer = window.setTimeout(() => setSecondsLeft((seconds) => seconds - 1), 1_000)
@@ -111,26 +121,59 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
   }
 
   function updateRegistration(field: keyof RegistrationDraft, value: string): void {
-    setRegistration((current) => ({ ...current, [field]: value }))
+    setRegistration((current) => {
+      const updated = { ...current, [field]: value }
+      // Reset district when state changes
+      if (field === 'state') {
+        updated.district = ''
+      }
+      return updated
+    })
   }
 
   function registrationPayload(): RegistrationPayload | null {
-    const requiredFields = [
-      registration.full_name,
-      registration.state,
-      registration.district,
-      registration.village_or_town,
-    ]
-    if (requiredFields.some((field) => field.trim().length < 2) || !registration.user_type) return null
+    const { full_name, state, district, village_or_town, address, pincode, caste_category, user_type } = registration
+
+    // All fields are mandatory
+    if (
+      full_name.trim().length < 2 ||
+      state.trim().length < 2 ||
+      district.trim().length < 2 ||
+      village_or_town.trim().length < 2 ||
+      address.trim().length < 2 ||
+      pincode.trim().length !== 6 ||
+      !caste_category ||
+      !user_type
+    ) {
+      return null
+    }
+
     return {
-      full_name: registration.full_name.trim(),
-      state: registration.state.trim(),
-      district: registration.district.trim(),
-      village_or_town: registration.village_or_town.trim(),
-      user_type: registration.user_type,
-      ...(registration.address.trim() ? { address: registration.address.trim() } : {}),
+      full_name: full_name.trim(),
+      state: state.trim(),
+      district: district.trim(),
+      village_or_town: village_or_town.trim(),
+      address: address.trim(),
+      pincode: pincode.trim(),
+      caste_category: caste_category as CasteCategory,
+      user_type: user_type as UserType,
       ...(registration.cooperative_role.trim() ? { cooperative_role: registration.cooperative_role.trim() } : {}),
     }
+  }
+
+  function getMissingFields(): string[] {
+    const missing: string[] = []
+    const r = registration
+    if (mobile.length !== 10) missing.push('mobile number')
+    if (r.full_name.trim().length < 2) missing.push('full name')
+    if (!r.state) missing.push('state')
+    if (!r.district) missing.push('district')
+    if (r.village_or_town.trim().length < 2) missing.push('village / town')
+    if (r.address.trim().length < 2) missing.push('address')
+    if (r.pincode.trim().length !== 6) missing.push('6-digit pincode')
+    if (!r.caste_category) missing.push('caste category')
+    if (!r.user_type) missing.push('how you use Sahayak')
+    return missing
   }
 
   async function requestOtp(activeIntent: MobileAuthIntent, event?: FormEvent<HTMLFormElement>): Promise<void> {
@@ -157,8 +200,9 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
 
   async function continueRegistration(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (!registrationPayload()) {
-      setError('Complete your name, location and service role before continuing.')
+    const missing = getMissingFields()
+    if (missing.length > 0) {
+      setError(`Please fill in: ${missing.join(', ')}.`)
       return
     }
     await requestOtp('register')
@@ -184,8 +228,6 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
     setIsSubmitting(true)
     try {
       const profile = await auth.verifyOtp(mobile, otp, intent, completedRegistration ?? undefined)
-      // A registration is the one moment we know the member has just proved
-      // control of their number, so optional device enrollment is allowed.
       if (intent === 'register' && deviceBiometricsAvailable) {
         setVerifiedProfile(profile)
         setStep('face-id')
@@ -268,7 +310,7 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
               </button>
               <button className="auth-choice" onClick={() => chooseIntent('register')} type="button">
                 <span className="auth-choice__icon auth-choice__icon--accent"><UserRoundPlus size={19} /></span>
-                <span><b>Create account</b><small>I’m new to Sahayak AI</small></span>
+                <span><b>Create account</b><small>I'm new to Sahayak AI</small></span>
                 <ArrowRight aria-hidden="true" size={18} />
               </button>
               {deviceBiometricsAvailable && (
@@ -313,15 +355,138 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
             </div>
             <form className="auth-form auth-form--registration" onSubmit={(event) => void continueRegistration(event)}>
               <div className="auth-form__grid">
+
+                {/* Mobile number */}
                 <IndianNumber onChange={setMobile} value={mobile} />
-                <label className="auth-text-field"><span>Full name</span><input autoComplete="name" onChange={(event) => updateRegistration('full_name', event.target.value)} placeholder="Your full name" required value={registration.full_name} /></label>
-                <label className="auth-text-field"><span>State</span><input autoComplete="address-level1" onChange={(event) => updateRegistration('state', event.target.value)} placeholder="e.g. Maharashtra" required value={registration.state} /></label>
-                <label className="auth-text-field"><span>District / city</span><input autoComplete="address-level2" onChange={(event) => updateRegistration('district', event.target.value)} placeholder="Your district or city" required value={registration.district} /></label>
-                <label className="auth-text-field"><span>Village / town</span><input onChange={(event) => updateRegistration('village_or_town', event.target.value)} placeholder="Your village or town" required value={registration.village_or_town} /></label>
-                <label className="auth-text-field"><span>How do you use Sahayak?</span><select onChange={(event) => updateRegistration('user_type', event.target.value)} required value={registration.user_type}><option value="">Choose your role</option>{USER_TYPES.map((type) => <option key={type} value={type}>{userTypeLabels[type]}</option>)}</select></label>
-                <label className="auth-text-field"><span>Cooperative role <em>optional</em></span><input onChange={(event) => updateRegistration('cooperative_role', event.target.value)} placeholder="e.g. Secretary or member" value={registration.cooperative_role} /></label>
-                <label className="auth-text-field"><span>Address <em>optional</em></span><input autoComplete="street-address" onChange={(event) => updateRegistration('address', event.target.value)} placeholder="House, street or landmark" value={registration.address} /></label>
+
+                {/* Full name */}
+                <label className="auth-text-field auth-text-field--full">
+                  <span>Full name <em aria-hidden="true" className="required-mark">*</em></span>
+                  <input
+                    autoComplete="name"
+                    onChange={(event) => updateRegistration('full_name', event.target.value)}
+                    placeholder="Your full name"
+                    required
+                    value={registration.full_name}
+                  />
+                </label>
+
+                {/* State dropdown */}
+                <label className="auth-text-field">
+                  <span>State <em aria-hidden="true" className="required-mark">*</em></span>
+                  <select
+                    onChange={(event) => updateRegistration('state', event.target.value)}
+                    required
+                    value={registration.state}
+                  >
+                    <option value="">Select your state</option>
+                    {ALL_STATES.map((state) => (
+                      <option key={state} value={state}>{state}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* District dropdown — only enabled after state is chosen */}
+                <label className="auth-text-field">
+                  <span>District <em aria-hidden="true" className="required-mark">*</em></span>
+                  <select
+                    disabled={!registration.state}
+                    onChange={(event) => updateRegistration('district', event.target.value)}
+                    required
+                    value={registration.district}
+                  >
+                    <option value="">{registration.state ? 'Select your district' : 'Select state first'}</option>
+                    {availableDistricts.map((district) => (
+                      <option key={district} value={district}>{district}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* Village / Town / City — typed */}
+                <label className="auth-text-field">
+                  <span>Village / Town / City <em aria-hidden="true" className="required-mark">*</em></span>
+                  <input
+                    onChange={(event) => updateRegistration('village_or_town', event.target.value)}
+                    placeholder="Your village, town or city"
+                    required
+                    value={registration.village_or_town}
+                  />
+                </label>
+
+                {/* Pincode */}
+                <label className="auth-text-field">
+                  <span>Pincode <em aria-hidden="true" className="required-mark">*</em></span>
+                  <input
+                    inputMode="numeric"
+                    maxLength={6}
+                    onChange={(event) => updateRegistration('pincode', event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="6-digit pincode"
+                    pattern="\d{6}"
+                    required
+                    value={registration.pincode}
+                  />
+                </label>
+
+                {/* Address — typed, mandatory */}
+                <label className="auth-text-field auth-text-field--full">
+                  <span>Address <em aria-hidden="true" className="required-mark">*</em></span>
+                  <input
+                    autoComplete="street-address"
+                    onChange={(event) => updateRegistration('address', event.target.value)}
+                    placeholder="House number, street, landmark"
+                    required
+                    value={registration.address}
+                  />
+                </label>
+
+                {/* Caste category dropdown */}
+                <label className="auth-text-field">
+                  <span>Caste category <em aria-hidden="true" className="required-mark">*</em></span>
+                  <select
+                    onChange={(event) => updateRegistration('caste_category', event.target.value)}
+                    required
+                    value={registration.caste_category}
+                  >
+                    <option value="">Select your category</option>
+                    {CASTE_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>{CASTE_CATEGORY_LABELS[cat]}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* How do you use Sahayak */}
+                <label className="auth-text-field">
+                  <span>How do you use Sahayak? <em aria-hidden="true" className="required-mark">*</em></span>
+                  <select
+                    onChange={(event) => updateRegistration('user_type', event.target.value)}
+                    required
+                    value={registration.user_type}
+                  >
+                    <option value="">Choose your role</option>
+                    {USER_TYPES.map((type) => (
+                      <option key={type} value={type}>{userTypeLabels[type]}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {/* Cooperative role — optional */}
+                <label className="auth-text-field auth-text-field--full">
+                  <span>Cooperative role <em className="optional-mark">optional</em></span>
+                  <input
+                    onChange={(event) => updateRegistration('cooperative_role', event.target.value)}
+                    placeholder="e.g. Secretary or member"
+                    value={registration.cooperative_role}
+                  />
+                </label>
+
               </div>
+
+              {/* Required fields legend */}
+              <p className="auth-required-note">
+                <MapPin size={13} aria-hidden="true" />
+                Fields marked <em className="required-mark">*</em> are required
+              </p>
+
               <button className="primary-action auth-form__submit" disabled={isSubmitting} type="submit">
                 {isSubmitting ? <LoaderCircle className="spin" size={18} /> : null}
                 {isSubmitting ? 'Sending OTP…' : 'Continue to phone verification'}
@@ -348,7 +513,7 @@ export function AuthModal({ auth, isOpen, onClose, onVerified }: AuthModalProps)
               <span className="auth-face-setup__icon"><Fingerprint size={27} /></span>
               <p className="section-kicker">Optional security step</p>
               <h2 id="auth-title">Set up Face ID?</h2>
-              <p>Use your device’s Face ID, Touch ID, or screen lock for a faster, private sign-in next time.</p>
+              <p>Use your device's Face ID, Touch ID, or screen lock for a faster, private sign-in next time.</p>
               <p className="auth-biometric-note">Your face data and private key stay on your device. Sahayak stores only a public sign-in credential.</p>
             </div>
             <div className="auth-face-setup__actions">

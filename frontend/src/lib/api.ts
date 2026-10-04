@@ -1,5 +1,6 @@
 import type {
   AdminSession,
+  CasteCategory,
   GuestSession,
   HealthResponse,
   KnowledgeBaseStatus,
@@ -290,8 +291,10 @@ export type RegistrationPayload = {
   state: string
   district: string
   village_or_town: string
+  address: string
+  pincode: string
+  caste_category: CasteCategory
   user_type: UserType
-  address?: string
   cooperative_role?: string
 }
 

@@ -186,7 +186,7 @@ export function SchemesViewOptimized({
         </h1>
         <p>
           {isGuest
-            ? 'Browse schemes, programmes and services discovered from Sahayak's connected official sources. Choose your category or location to narrow the directory.'
+            ? "Browse schemes, programmes and services discovered from Sahayak's connected official sources. Choose your category or location to narrow the directory."
             : `This directory is filtered using your Sahayak profile: ${audienceLabel}.`}
         </p>
       </header>
