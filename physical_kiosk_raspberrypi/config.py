@@ -1,58 +1,61 @@
-# Sahayak AI - Raspberry Pi Kiosk & Hardware Controller
-# Production Configuration Settings
+# Sahayak AI — Raspberry Pi Kiosk Hardware Configuration
+# All settings are loaded from config.env; no credentials are hard-coded here.
 
 import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 
-def load_env_file(env_filename="config.env"):
-    """
-    Parses key=value pairs from env file into os.environ.
-    """
-    env_path = BASE_DIR / env_filename
-    if not env_path.exists():
-        env_path = BASE_DIR / ".env"
 
-    if env_path.exists():
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
+def load_env_file(filename: str = "config.env") -> None:
+    """Parse key=value pairs from an env file into os.environ."""
+    for candidate in (BASE_DIR / filename, BASE_DIR / ".env"):
+        if candidate.exists():
+            with open(candidate, encoding="utf-8") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
                     key, val = line.split("=", 1)
-                    key, val = key.strip(), val.strip().strip("'\"")
-                    os.environ[key] = val
+                    os.environ.setdefault(key.strip(), val.strip().strip("'\""))
+            break
+
 
 load_env_file()
 
-# Google Cloud Application Credentials Validation
-g_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-if g_creds and not os.path.isabs(g_creds):
-    abs_creds = str(BASE_DIR / g_creds)
-    if os.path.exists(abs_creds):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = abs_creds
+# ── Resolve relative Google credentials path ───────────────────────────────
+_g_creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+if _g_creds and not os.path.isabs(_g_creds):
+    _abs = str(BASE_DIR / _g_creds)
+    if os.path.exists(_abs):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _abs
 
-# Server / Backend Configuration
-HOST = os.environ.get("KIOSK_HOST", "0.0.0.0")
-PORT = int(os.environ.get("KIOSK_PORT", 5000))
-BACKEND_SERVER_URL = os.environ.get("BACKEND_SERVER_URL", "http://127.0.0.1:5000")
+# ── Backend / Server ────────────────────────────────────────────────────────
+HOST: str = os.environ.get("KIOSK_HOST", "0.0.0.0")
+PORT: int = int(os.environ.get("KIOSK_PORT", "5000"))
+BACKEND_SERVER_URL: str = os.environ.get("BACKEND_SERVER_URL", "http://127.0.0.1:8000")
 
-# ALSA Audio Device Settings (Supports both USB Mic & INMP441 I2S MEMS Mic)
-ALSA_RECORD_DEVICE = os.environ.get("ALSA_RECORD_DEVICE", "plughw:CARD=sndrpigooglevoi,DEV=0")
-ALSA_PLAYBACK_DEVICE = os.environ.get("ALSA_PLAYBACK_DEVICE", "plughw:CARD=sndrpigooglevoi,DEV=0")
-SAMPLE_RATE = int(os.environ.get("AUDIO_SAMPLE_RATE", 48000))
-CHANNELS = int(os.environ.get("AUDIO_CHANNELS", 2))
-BIT_DEPTH = os.environ.get("AUDIO_BIT_DEPTH", "S32_LE")
-TARGET_SAMPLE_RATE = 16000
+# ── LiveKit / Voice Agent ───────────────────────────────────────────────────
+# The agent name must match the agent worker registration on the backend.
+AGENT_NAME: str = os.environ.get("LIVEKIT_AGENT_NAME", "sahayak-ai")
 
-# Camera Hardware Settings
-CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", 0))
-CAMERA_WIDTH = int(os.environ.get("CAMERA_WIDTH", 640))
-CAMERA_HEIGHT = int(os.environ.get("CAMERA_HEIGHT", 480))
-CAMERA_FPS = int(os.environ.get("CAMERA_FPS", 30))
+# ── Audio ───────────────────────────────────────────────────────────────────
+ALSA_RECORD_DEVICE: str = os.environ.get("ALSA_RECORD_DEVICE", "plughw:CARD=sndrpigooglevoi,DEV=0")
+ALSA_PLAYBACK_DEVICE: str = os.environ.get("ALSA_PLAYBACK_DEVICE", "plughw:CARD=sndrpigooglevoi,DEV=0")
+SAMPLE_RATE: int = int(os.environ.get("AUDIO_SAMPLE_RATE", "48000"))
+CHANNELS: int = int(os.environ.get("AUDIO_CHANNELS", "2"))
+BIT_DEPTH: str = os.environ.get("AUDIO_BIT_DEPTH", "S32_LE")
+TARGET_SAMPLE_RATE: int = 16000  # Required by Google STT
 
-# SQLite Database & Model Paths
-MODELS_DIR = str(BASE_DIR / "models")
-DB_PATH = str(BASE_DIR / "data" / "users.db")
+# ── STT ─────────────────────────────────────────────────────────────────────
+STT_LANGUAGE: str = os.environ.get("STT_LANGUAGE", "hi-IN")
+
+# ── Camera ──────────────────────────────────────────────────────────────────
+CAMERA_INDEX: int = int(os.environ.get("CAMERA_INDEX", "0"))
+CAMERA_WIDTH: int = int(os.environ.get("CAMERA_WIDTH", "640"))
+CAMERA_HEIGHT: int = int(os.environ.get("CAMERA_HEIGHT", "480"))
+CAMERA_FPS: int = int(os.environ.get("CAMERA_FPS", "30"))
+
+# ── Storage ─────────────────────────────────────────────────────────────────
+MODELS_DIR: str = str(BASE_DIR / "models")
+DB_PATH: str = str(BASE_DIR / "data" / "users.db")

@@ -31,6 +31,7 @@ chromium-browser \
   --disable-component-update \
   --touch-events=enabled \
   --enable-features=OverlayScrollbar \
+  --use-fake-ui-for-media-stream \
   --window-size=1024,600 \
   --window-position=0,0 \
   "$KIOSK_URL"

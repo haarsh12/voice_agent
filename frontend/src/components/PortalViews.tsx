@@ -6,6 +6,7 @@ import {
   FilePlus2,
   FileText,
   Fingerprint,
+  Landmark,
   LoaderCircle,
   MessageSquareWarning,
   Mic,
