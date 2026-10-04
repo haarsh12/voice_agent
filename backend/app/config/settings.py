@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 import secrets
 from urllib.parse import urlparse
 
@@ -42,6 +43,14 @@ class Settings(BaseSettings):
     livekit_api_key: SecretStr | None = None
     livekit_api_secret: SecretStr | None = None
     agent_name: str = "sahayak-ai"
+
+    # Exotel sends inbound PSTN calls directly to LiveKit's SIP FQDN. These
+    # values identify the phone number and reusable LiveKit resources created
+    # by scripts/configure_exotel_livekit.py. Exotel API credentials are not
+    # needed by the application for this inbound path.
+    exotel_exophone_e164: str = ""
+    exotel_livekit_trunk_name: str = "sahayak-exotel-inbound"
+    exotel_livekit_dispatch_rule_name: str = "sahayak-exotel-inbound-v1"
 
     # Mobile-account credentials and database access are server-only. The
     # browser uses an HttpOnly session cookie and never receives these values.
@@ -281,6 +290,16 @@ class Settings(BaseSettings):
     def require_agent_providers(self) -> None:
         self.require_token_issuer()
         self._require("GOOGLE_APPLICATION_CREDENTIALS", self.google_application_credentials)
+
+    def require_exotel_livekit_configuration(self) -> None:
+        """Require only values necessary to create LiveKit SIP resources."""
+
+        self.require_token_issuer()
+        exophone = self.exotel_exophone_e164.strip()
+        if not re.fullmatch(r"\+[1-9]\d{7,14}", exophone):
+            raise MissingConfigurationError(
+                "EXOTEL_EXOPHONE_E164 must be the assigned ExoPhone in E.164 format, for example +912012345678."
+            )
 
     def require_admin_access(self) -> None:
         self._require("ADMIN_ID", self.admin_id)

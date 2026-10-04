@@ -41,6 +41,7 @@ from app.agent.providers import (
 from app.auth.session import ensure_development_auth_schema, get_engine, get_session_factory
 from app.auth.models import Account
 from app.config.settings import MissingConfigurationError, get_settings
+from app.core.client_device import ClientDevice, LIVEKIT_DEVICE_ATTRIBUTE, parse_client_device
 from app.core.logging import configure_logging
 from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
 from app.knowledge.voice import VoiceKnowledgeService, VoiceKnowledgeTurn
@@ -122,10 +123,11 @@ class SahayakAssistant(Agent):
         has_reference_documents: bool = False,
         account_id: int | None = None,
         on_grievance_updated: Callable[[str], Awaitable[None]] | None = None,
+        client_device: ClientDevice | None = None,
     ) -> None:
         super().__init__(
             instructions=build_voice_assistant_instructions(
-                LANGUAGE_NAMES[active_language], guest_context
+                LANGUAGE_NAMES[active_language], guest_context, client_device=client_device
             )
         )
         self._active_language = active_language
@@ -540,6 +542,13 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     # Waiting is deterministic; the earlier fixed sleep raced token attributes
     # and intermittently discarded the browser's selected language.
     participant = await ctx.wait_for_participant()
+    try:
+        client_device = parse_client_device(participant.attributes.get(LIVEKIT_DEVICE_ATTRIBUTE))
+    except ValueError:
+        # A remote SIP provider may supply arbitrary participant attributes.
+        # Unknown values must not break a call or influence authorization.
+        client_device = None
+        logger.warning("participant_device_ignored reason=unsupported_value")
     active_language = (
         normalize_language(participant.attributes.get("language"))
         or normalize_language(settings.google_stt_language)
@@ -574,13 +583,17 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     language_revision = 0
 
     logger.info(
-        "participant_language_preference participant=%s language=%s",
+        "participant_session_profile participant=%s language=%s device=%s",
         participant.identity,
         active_language,
+        client_device.value if client_device is not None else "unknown",
     )
 
     async def publish_grievance_update(grievance_id: str) -> None:
         """Tell only the current browser to reveal its saved grievance card."""
+
+        if client_device == ClientDevice.EXOTEL:
+            return
 
         payload = json.dumps(
             {"type": "grievance_update", "grievance_id": grievance_id}, separators=(",", ":")
@@ -600,6 +613,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         has_reference_documents,
         account_id,
         publish_grievance_update,
+        client_device,
     )
     session = AgentSession(
         stt=create_stt(settings, primary_language=active_language),
@@ -660,14 +674,18 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         assistant.set_has_reference_documents(has_reference_documents)
         assistant.set_account_id(account_id)
         await assistant.update_instructions(
-            build_voice_assistant_instructions(LANGUAGE_NAMES[active_language], guest_context)
+            build_voice_assistant_instructions(
+                LANGUAGE_NAMES[active_language], guest_context, client_device=client_device
+            )
         )
 
     async def announce_language(language: str, source: str, revision: int) -> None:
         """Update the LLM and send the authoritative UI state to its owner only."""
 
         await assistant.update_instructions(
-            build_voice_assistant_instructions(LANGUAGE_NAMES[language], guest_context)
+            build_voice_assistant_instructions(
+                LANGUAGE_NAMES[language], guest_context, client_device=client_device
+            )
         )
         if revision != language_revision:
             return
@@ -690,6 +708,10 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
 
     async def publish_voice_citations(update: VoiceCitationUpdate, assistant_text: str) -> None:
         """Send references through LiveKit data, never through the speech stream."""
+
+        if client_device == ClientDevice.EXOTEL:
+            # A SIP/PSTN participant has no visual surface for this payload.
+            return
 
         # Handle case where no official sources were found (general guidance mode)
         if not update.citations and update.evidence_status.value in {"NO_EVIDENCE", "GENERAL"}:

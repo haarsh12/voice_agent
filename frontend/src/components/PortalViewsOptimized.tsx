@@ -3,7 +3,7 @@
  */
 
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
-import { BookOpenCheck, ChevronRight, LoaderCircle } from 'lucide-react'
+import { BookOpenCheck, ChevronRight } from 'lucide-react'
 
 import { getSchemeDetail, getSchemeFilters, getSchemes } from '../lib/api'
 import { cache } from '../lib/cache'
@@ -95,7 +95,6 @@ export function SchemesViewOptimized({
   const [selected, setSelected] = useState<SchemeDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [offset, setOffset] = useState(0)
-  const PAGE_SIZE = 18
 
   const loadSchemes = useCallback(
     async (loadMore = false) => {

@@ -50,7 +50,7 @@ function formatPublicationDate(dateString: string | undefined): string {
 }
 
 export function CitationCard({ citation, compact = false }: CitationCardProps) {
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = () => {
     // Let the browser handle the link naturally
     // Analytics or tracking could be added here
   }

@@ -9,6 +9,7 @@ from uuid import uuid4
 from livekit import api
 
 from app.config.settings import Settings
+from app.core.client_device import ClientDevice, LIVEKIT_DEVICE_ATTRIBUTE
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +27,7 @@ def issue_browser_token(
     participant_name: str,
     participant_identity: str | None = None,
     language: str | None = None,
+    client_device: ClientDevice | None = None,
     guest_session_id: str | None = None,
     guest_session_secret: str | None = None,
 ) -> IssuedToken:
@@ -40,6 +42,7 @@ def issue_browser_token(
         participant_name: Display name for the participant
         participant_identity: Optional unique identity (generated if not provided)
         language: Optional language preference passed as a participant attribute.
+        client_device: Declared frontend device used only for response delivery.
         guest_session_id: Ephemeral guest-session identifier for shared context.
         guest_session_secret: Capability required by the worker to read that
             context from this backend.
@@ -76,6 +79,8 @@ def issue_browser_token(
     attributes: dict[str, str] = {}
     if language:
         attributes["language"] = language
+    if client_device is not None:
+        attributes[LIVEKIT_DEVICE_ATTRIBUTE] = client_device.value
     if guest_session_id and guest_session_secret:
         attributes["guest_session_id"] = guest_session_id
         attributes["guest_session_secret"] = guest_session_secret

@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import router
 from app.api.services_routes import router as services_router
@@ -14,6 +15,7 @@ from app.admin.routes import router as admin_router
 from app.auth.routes import router as auth_router
 from app.auth.session import get_session_factory
 from app.config.settings import get_settings
+from app.core.client_device import InvalidClientDevice, device_context_from_request
 from app.core.logging import configure_logging
 from app.knowledge.routes import router as knowledge_router
 from app.grievances.routes import router as grievances_router
@@ -48,6 +50,28 @@ async def lifespan(app: FastAPI):
 
 settings.require_runtime_security()
 app = FastAPI(title="Sahayak AI API", version="0.2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def attach_client_device_context(request: Request, call_next):
+    """Validate optional device declarations without trusting them as identity.
+
+    Every Sahayak client sends ``X-Sahayak-Device``. Existing local clients
+    without the header remain compatible as ``unknown`` while being unable to
+    gain any privilege from the declaration. The internal worker endpoints are
+    not frontend surfaces and do not need a device declaration.
+    """
+
+    if request.url.path.startswith("/api/internal/"):
+        return await call_next(request)
+    try:
+        request.state.client_device_context = device_context_from_request(
+            request,
+            allow_query_fallback=request.url.path == "/api/token",
+        )
+    except InvalidClientDevice as error:
+        return JSONResponse(status_code=422, content={"detail": str(error)})
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

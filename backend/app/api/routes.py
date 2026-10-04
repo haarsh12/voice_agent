@@ -19,6 +19,7 @@ from app.agent.languages import normalize_language
 from app.auth.security import get_optional_current_account
 from app.auth.session import get_auth_session
 from app.config.settings import MissingConfigurationError, Settings, get_settings
+from app.core.client_device import ClientDeviceContext, get_client_device_context
 from app.knowledge.contracts import Citation, EvidenceStatus, UserKnowledgeContext
 from app.knowledge.policy import decide_response
 from app.knowledge.retrieval import KnowledgeRetriever, format_evidence_for_model
@@ -328,6 +329,11 @@ async def create_token(
         ) from error
 
     request = request or TokenRequest()
+    device_context = (
+        get_client_device_context(http_request)
+        if isinstance(http_request, Request)
+        else ClientDeviceContext(device=None, declared=False)
+    )
     room_name = request.room_name or f"sahayak-{uuid4().hex[:12]}"
     participant_name = request.participant_name or "Guest"
     requested_language = request.language or request.participant_attributes.get("language")
@@ -362,6 +368,7 @@ async def create_token(
         room_name=room_name,
         participant_name=participant_name,
         language=language,
+        client_device=device_context.device,
         guest_session_id=guest_session_id,
         guest_session_secret=guest_session_secret,
     )
@@ -376,6 +383,7 @@ async def create_text_chat_reply(
     request: Request,
     session: AsyncSession = Depends(get_auth_session),
     settings: Settings = Depends(get_settings),
+    client_device: ClientDeviceContext = Depends(get_client_device_context),
 ) -> ChatResponse:
     """Accept a text message and optional document, then return a text-only reply."""
 
@@ -513,6 +521,7 @@ async def create_text_chat_reply(
                     document_truncated=document.truncated if document else False,
                     image_data=image.data if image else None,
                     image_mime_type=image.mime_type if image else None,
+                    client_device=client_device.device,
                     guest_context=snapshot.render_context(max_characters=MAX_AGENT_CONTEXT_CHARACTERS),
                     verified_evidence=format_evidence_for_model(decision.retrieval.evidence) + scheme_instruction,
                     evidence_status=decision.evidence_status.value,

@@ -17,7 +17,7 @@ _AUTHORITATIVE_TERMS = (
 _ABSTENTIONS = {
     "hi-IN": "मैं इसके बारे में सामान्य जानकारी दे सकती हूँ। आमतौर पर सरकार किसानों के लिए विभिन्न योजनाएं चलाती है। क्या आप कोई विशेष विवरण जानना चाहते हैं?",
     "mr-IN": "मी याबद्दल सामान्य माहिती देऊ शकते. सामान्यपणे सरकार शेतकऱ्यांसाठी विविध योजना चालवते. तुम्हाला काही विशिष्ट तपशील हवेत का?",
-    "en-IN": "I can provide general information about this. Typically, the government runs various schemes for farmers. Would you like specific details about any particular aspect?",
+    "en-IN": "That current detail is not yet available in Sahayak AI. I can provide general information about it; would you like a general explanation?",
     "ta-IN": "இதைப் பற்றி பொதுவான தகவலை வழங்க முடியும். பொதுவாக அரசாங்கம் விவசாயிகளுக்காக பல்வேறு திட்டங்களை நடத்துகிறது. ஏதேனும் குறிப்பிட்ட விவரங்கள் தேவையா?",
     "te-IN": "నేను దీని గురించి సాధారణ సమాచారం అందించగలను. సాధారణంగా ప్రభుత్వం రైతుల కోసం వివిధ పథకాలను నడుపుతుంది. ఏదైనా నిర్దిష్ట వివరాలు కావాలా?",
     "kn-IN": "ನಾನು ಇದರ ಬಗ್ಗೆ ಸಾಮಾನ್ಯ ಮಾಹಿತಿಯನ್ನು ನೀಡಬಲ್ಲೆ. ಸಾಮಾನ್ಯವಾಗಿ ಸರ್ಕಾರವು ರೈತರಿಗಾಗಿ ವಿವಿಧ ಯೋಜನೆಗಳನ್ನು ನಡೆಸುತ್ತದೆ. ಯಾವುದಾದರೂ ನಿರ್ದಿಷ್ಟ ವಿವರಗಳು ಬೇಕೇ?",

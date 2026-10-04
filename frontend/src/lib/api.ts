@@ -29,9 +29,17 @@ const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
 const apiBaseUrl = configuredApiBaseUrl ? configuredApiBaseUrl.replace(/\/$/, '') : ''
 
 export const agentName = import.meta.env.VITE_AGENT_NAME ?? 'sahayak-ai'
+const clientDevice = 'website'
+
+function clientDeviceHeaders(): HeadersInit {
+  return { 'X-Sahayak-Device': clientDevice }
+}
 
 export function getTokenEndpoint(): string {
-  return `${apiBaseUrl}/api/token`
+  // LiveKit TokenSource owns the request headers. Declare the same device in
+  // its endpoint query while every ordinary API request uses the standard
+  // X-Sahayak-Device header below.
+  return `${apiBaseUrl}/api/token?client_device=${encodeURIComponent(clientDevice)}`
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -41,7 +49,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${apiBaseUrl}${path}`, {
       ...requestInit,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', ...clientDeviceHeaders(), ...headers },
     })
   } catch {
     throw new Error('Sahayak AI cannot reach its local service. Refresh this page, then make sure the API is running.')
@@ -222,7 +230,7 @@ export async function endAdminSession(): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/admin/session`, {
     method: 'DELETE',
     credentials: 'include',
-    headers: adminCsrfHeaders(),
+    headers: { ...clientDeviceHeaders(), ...adminCsrfHeaders() },
   })
   if (!response.ok) throw new Error(await getSafeError(response))
 }
@@ -235,7 +243,7 @@ export async function deleteGuestSession(session: GuestSession): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/guest-sessions/${encodeURIComponent(session.session_id)}`, {
     method: 'DELETE',
     credentials: 'include',
-    headers: { 'X-Sahayak-Guest-Secret': session.session_secret },
+    headers: { ...clientDeviceHeaders(), 'X-Sahayak-Guest-Secret': session.session_secret },
   })
   // The session may already have expired. In either case it has no remaining
   // usable context, so the browser can safely create a fresh session.
@@ -260,6 +268,7 @@ export async function sendTextChat(
   const response = await fetch(`${apiBaseUrl}/api/chat`, {
     method: 'POST',
     credentials: 'include',
+    headers: clientDeviceHeaders(),
     body: form,
   })
 
@@ -341,7 +350,7 @@ export function finishFaceIdRegistration(
 ): Promise<SahayakProfile> {
   return request('/api/auth/face-id/registration/verify', {
     method: 'POST',
-    headers: csrfHeaders(),
+    headers: { ...clientDeviceHeaders(), ...csrfHeaders() },
     body: JSON.stringify({ ceremony_id: ceremonyId, credential }),
   })
 }
@@ -376,7 +385,7 @@ export async function signOut(): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/auth/logout`, {
     method: 'POST',
     credentials: 'include',
-    headers: csrfHeaders(),
+    headers: { ...clientDeviceHeaders(), ...csrfHeaders() },
   })
   if (!response.ok && response.status !== 401) throw new Error(await getSafeError(response))
 }

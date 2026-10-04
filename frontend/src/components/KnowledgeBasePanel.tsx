@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Database, ExternalLink, FileText, LoaderCircle, RefreshCw, Server } from 'lucide-react'
+import { Database, ExternalLink, FileText, RefreshCw, Server } from 'lucide-react'
 
 import { getKnowledgeBaseStatus } from '../lib/api'
 import { cache } from '../lib/cache'

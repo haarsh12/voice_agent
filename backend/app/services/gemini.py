@@ -12,6 +12,7 @@ from google.oauth2 import service_account
 
 from app.agent.languages import LANGUAGE_NAMES, normalize_language
 from app.config.settings import MissingConfigurationError, Settings
+from app.core.client_device import ClientDevice, device_response_guidance
 
 _CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 
@@ -75,6 +76,7 @@ def build_text_chat_prompt(
     document_text: str | None = None,
     document_truncated: bool = False,
     image_attached: bool = False,
+    client_device: ClientDevice | None = None,
     guest_context: str = "",
     verified_evidence: str = "",
     evidence_status: str = "GENERAL_MODEL_KNOWLEDGE",
@@ -130,6 +132,8 @@ You are a woman. In languages where verbs, adjectives, or self-references
 change by gender, always use feminine grammar (for example, "कर सकती हूँ",
 not "कर सकता हूँ" in Hindi).
 
+Device delivery constraints: {device_response_guidance(client_device)}
+
 Rules:
 - Give educational guidance only. Do not invent current rules, eligibility,
   benefits, deadlines, contacts, legal outcomes, or application status. Give
@@ -182,6 +186,7 @@ def generate_text_reply(
     document_truncated: bool = False,
     image_data: bytes | None = None,
     image_mime_type: str | None = None,
+    client_device: ClientDevice | None = None,
     guest_context: str = "",
     verified_evidence: str = "",
     evidence_status: str = "GENERAL_MODEL_KNOWLEDGE",
@@ -198,6 +203,7 @@ def generate_text_reply(
         document_text=document_text,
         document_truncated=document_truncated,
         image_attached=image_data is not None,
+        client_device=client_device,
         guest_context=guest_context,
         verified_evidence=verified_evidence,
         evidence_status=evidence_status,
