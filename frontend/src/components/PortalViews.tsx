@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, type FormEvent, useRef, useState } from 'react'
 import {
   Bell,
   BookOpenCheck,
@@ -6,7 +6,6 @@ import {
   FilePlus2,
   FileText,
   Fingerprint,
-  Landmark,
   LoaderCircle,
   MessageSquareWarning,
   Mic,
@@ -19,9 +18,8 @@ import {
 } from 'lucide-react'
 
 import type { SahayakAuth } from '../hooks/useAuth'
-import { getSchemeDetail, getSchemeFilters, getSchemes } from '../lib/api'
 import { biometricErrorMessage, supportsDeviceBiometrics } from '../lib/webauthn'
-import type { SahayakProfile, SchemeDetail, SchemeFilters, SchemeSummary, UserType } from '../types/api'
+import type { SahayakProfile, UserType } from '../types/api'
 import type { AppRoute } from '../types/navigation'
 
 type Navigate = (route: AppRoute) => void
@@ -90,105 +88,6 @@ export function DocumentsView({ onTalk }: { onTalk: () => void }) {
       </section>
     </main>
   )
-}
-
-const USER_TYPE_LABELS: Record<UserType, string> = {
-  cooperative_member: 'Cooperative member',
-  farmer: 'Farmer',
-  pacs_member: 'PACS member',
-  cooperative_official: 'Cooperative official',
-  rural_stakeholder: 'Rural stakeholder',
-  other: 'Other rural stakeholder',
-}
-
-export function SchemesView({ onTalk, profile }: { onTalk: () => void; profile?: SahayakProfile | null }) {
-  const isGuest = !profile
-  const [guestAudience, setGuestAudience] = useState<string>('')
-  const [category, setCategory] = useState('')
-  const [state, setState] = useState('')
-  const [query, setQuery] = useState('')
-  const [submittedQuery, setSubmittedQuery] = useState('')
-  const [filters, setFilters] = useState<SchemeFilters>({ categories: [], beneficiaries: [], states: [], types: [] })
-  const [schemes, setSchemes] = useState<SchemeSummary[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<SchemeDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
-
-  const loadSchemes = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await getSchemes({
-        query: submittedQuery,
-        category: category || undefined,
-        beneficiary: isGuest ? guestAudience || undefined : undefined,
-        state: isGuest ? state || undefined : undefined,
-        relevantToMe: !isGuest,
-      })
-      setSchemes(response.items)
-      setTotal(response.total)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'We could not load the verified scheme directory.')
-    } finally {
-      setLoading(false)
-    }
-  }, [category, guestAudience, isGuest, state, submittedQuery])
-
-  useEffect(() => {
-    void getSchemeFilters().then(setFilters).catch(() => setFilters({ categories: [], beneficiaries: [], states: [], types: [] }))
-  }, [])
-  useEffect(() => { void loadSchemes() }, [loadSchemes])
-
-  async function openScheme(scheme: SchemeSummary): Promise<void> {
-    setDetailLoading(true)
-    setSelected(null)
-    try {
-      setSelected(await getSchemeDetail(scheme.slug))
-    } catch (detailError) {
-      setError(detailError instanceof Error ? detailError.message : 'We could not open that scheme record.')
-    } finally {
-      setDetailLoading(false)
-    }
-  }
-
-  const audienceLabel = profile?.user_type ? USER_TYPE_LABELS[profile.user_type] : 'your profile'
-  return (
-    <main className="portal-page">
-      <PageTitle eyebrow="Scheme discovery" title={isGuest ? 'Find verified support for your situation.' : 'Your relevant verified schemes.'} text={isGuest ? 'Browse schemes, programmes and services discovered from Sahayak’s connected official sources. Choose your category or location to narrow the directory.' : `This directory is filtered using your Sahayak profile: ${audienceLabel}.`} />
-      <section className="scheme-toolbar" aria-label="Scheme audience">
-        <div><BookOpenCheck size={19} /><div><strong>{isGuest ? 'Guest scheme directory' : 'Personalised scheme directory'}</strong><p>{isGuest ? 'All currently verified records are available to browse. Tell Sahayak your category, state, crop or cooperative role for a focused shortlist.' : 'Your category and location are used only to surface potentially relevant records; they never guarantee eligibility.'}</p></div></div>
-      </section>
-      <form className="scheme-filters" onSubmit={(event) => { event.preventDefault(); setSubmittedQuery(query) }}>
-        <input aria-label="Search verified schemes" maxLength={240} onChange={(event) => setQuery(event.target.value)} placeholder="Search support, insurance, credit or a scheme name" value={query} />
-        <select aria-label="Scheme category" onChange={(event) => setCategory(event.target.value)} value={category}><option value="">All categories</option>{filters.categories.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-        {isGuest && <select aria-label="Your category" onChange={(event) => setGuestAudience(event.target.value)} value={guestAudience}><option value="">All beneficiary groups</option>{filters.beneficiaries.map((item) => <option key={item} value={item}>{USER_TYPE_LABELS[item as UserType] ?? item.replaceAll('_', ' ')}</option>)}</select>}
-        {isGuest && <select aria-label="State" onChange={(event) => setState(event.target.value)} value={state}><option value="">All locations</option>{filters.states.map((item) => <option key={item} value={item}>{item}</option>)}</select>}
-        <button className="secondary-action" type="submit">Search</button>
-      </form>
-      <p className="scheme-result-count" aria-live="polite">{loading ? 'Loading verified records…' : `${total} verified record${total === 1 ? '' : 's'} found`}</p>
-      {error && <p className="inline-notice">{error}</p>}
-      {!loading && <section className="scheme-grid">{schemes.map((scheme) => <article className="scheme-card scheme-card--catalogue" key={scheme.id}><span><BookOpenCheck size={21} /></span><p className="preview-badge">{scheme.category}</p><h2>{scheme.official_name}</h2><p>{scheme.description || 'Verified information is available in Sahayak AI.'}</p><dl><div><dt>For</dt><dd>{scheme.beneficiary_categories.length ? scheme.beneficiary_categories.map((item) => USER_TYPE_LABELS[item as UserType] ?? item.replaceAll('_', ' ')).join(', ') : 'See verified details'}</dd></div><div><dt>Coverage</dt><dd>{scheme.applicable_states.length ? scheme.applicable_states.join(', ') : scheme.geographic_scope === 'STATE' ? 'State-specific' : 'National / source-defined'}</dd></div><div><dt>Current status</dt><dd>{scheme.status === 'UNKNOWN' ? 'Current operational status not verified' : scheme.status.replaceAll('_', ' ')}</dd></div></dl><button className="link-action" onClick={() => void openScheme(scheme)} type="button">View details <ChevronRight size={15} /></button></article>)}</section>}
-      {!loading && schemes.length === 0 && <EmptyState icon={BookOpenCheck} text="No verified record matches these filters yet. Ask Sahayak to narrow your need by category, state, crop, cooperative role or support type." actionLabel="Ask Sahayak" onAction={onTalk} />}
-      {detailLoading && <p className="inline-notice">Opening verified scheme details…</p>}
-      {selected && <SchemeDetailPanel scheme={selected} onAsk={onTalk} onClose={() => setSelected(null)} />}
-    </main>
-  )
-}
-
-function SchemeDetailPanel({ scheme, onAsk, onClose }: { scheme: SchemeDetail; onAsk: () => void; onClose: () => void }) {
-  const dataValue = (key: string) => typeof scheme.data[key] === 'string' ? scheme.data[key] as string : null
-  const fields = [
-    ['What this is', dataValue('description')],
-    ['Objective', dataValue('objective')],
-    ['Who it may fit', dataValue('eligibility')],
-    ['What it provides', dataValue('benefits')],
-    ['Documents', dataValue('required_documents')],
-    ['How to apply', dataValue('application_process')],
-    ['Important dates', dataValue('important_dates')],
-  ].filter((item): item is [string, string] => Boolean(item[1]))
-  return <section className="scheme-detail-panel" aria-label="Verified scheme details"><div className="scheme-detail-panel__head"><div><p className="section-kicker">{scheme.scheme_type.replaceAll('_', ' ')}</p><h2>{scheme.official_name}</h2><p>Potential relevance is based on recorded source information. It is not an eligibility guarantee.</p></div><button className="header-icon-button" onClick={onClose} type="button" aria-label="Close details">×</button></div><div className="scheme-detail-panel__content">{fields.length ? fields.map(([label, value]) => <article key={label}><h3>{label}</h3><p>{value}</p></article>) : <p>Detailed fields have not yet been verified from the connected official record.</p>}</div><section className="scheme-detail-panel__sources"><h3>Verified information</h3><p>These source records support the information shown in Sahayak AI. You can ask Sahayak to explain any part here.</p><ul>{scheme.sources.map((source) => <li key={`${source.source_name}-${source.title}-${source.relevant_section}`}><strong>{source.source_name}</strong><span>{source.title}{source.relevant_section ? ` · ${source.relevant_section}` : ''}</span></li>)}</ul></section><button className="primary-action" onClick={onAsk} type="button">Ask Sahayak about this</button></section>
 }
 
 const NOTIFICATIONS = [

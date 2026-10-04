@@ -1,0 +1,73 @@
+services:
+  - type: web
+    name: sahayak-backend
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -e .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12
+      - key: APP_ENV
+        value: production
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: PORT
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://voice-agent-92ih.onrender.com
+      - key: WEB_AUTHN_ORIGINS
+        value: https://voice-agent-92ih.onrender.com
+      - key: WEB_AUTHN_RP_ID
+        value: voice-agent-92ih.onrender.com
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GOOGLE_CLOUD_LOCATION
+        value: global
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_TEMPERATURE
+        value: 0.35
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: OTP_DEMO_MODE
+        value: false
+      - key: FAST2SMS_API_KEY
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: ADMIN_PASSWORD_HASH
+        sync: false
+      - key: ADMIN_ACCESS_TOKEN_MINUTES
+        value: 240
+      - key: AGENT_NAME
+        value: sahayak-ai
+      - key: GOOGLE_STT_LANGUAGE
+        value: hi-IN
+      - key: GOOGLE_STT_MODEL
+        value: latest_long
+      - key: GOOGLE_STT_LOCATION
+        value: global
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: CARTESIA_TTS_MODEL
+        value: sonic-3
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: QDRANT_COLLECTION
+        value: sahayak_verified_knowledge
+      - key: KNOWLEDGE_EMBEDDING_MODEL
+        value: text-embedding-004
