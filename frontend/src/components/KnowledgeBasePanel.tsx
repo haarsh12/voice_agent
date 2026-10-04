@@ -149,7 +149,9 @@ export function KnowledgeBasePanel() {
               {source.latest_check && <p className="knowledge-base-source-card__time">Latest run: {source.latest_check.checked_documents} checked · {source.latest_check.changed_documents} changed</p>}
               <div className="knowledge-base-source-card__coverage"><strong>Covered categories</strong><p>{source.covered_categories.length ? source.covered_categories.map(readableCategory).join(' · ') : 'No current target category has verified evidence yet.'}</p><strong>Still missing</strong><p>{source.missing_categories.length ? source.missing_categories.map(readableCategory).join(' · ') : 'None'}</p></div>
               <div className="knowledge-base-source-card__links">
-                {source.entry_urls.map((url) => <a href={url} key={url} rel="noreferrer" target="_blank"><span>{safeHostname(url)}</span><ExternalLink size={14} /></a>)}
+                {Array.from(new Map(source.entry_urls.map(url => [safeHostname(url), url])).entries()).map(([hostname, url]) => (
+                  <a href={url} key={hostname} rel="noreferrer" target="_blank"><span>{hostname}</span><ExternalLink size={14} /></a>
+                ))}
               </div>
             </article>
           ))}

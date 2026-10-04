@@ -98,6 +98,7 @@ async def _run(
                         logging.info("knowledge_source_completed source=%s result=%s", key, result.value)
                 except Exception as error:
                     failed += 1
+                    await session.rollback()
                     logging.error("knowledge_source_exception source=%s error=%s", key, str(error), exc_info=True)
             
             logging.info(
