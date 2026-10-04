@@ -220,7 +220,7 @@ export function getKnowledgeBaseStatus(useCache = true): Promise<KnowledgeBaseSt
     if (cached) return Promise.resolve(cached)
   }
   
-  return request<KnowledgeBaseStatus>('/api/knowledge-base/status').then((result) => {
+  return request<KnowledgeBaseStatus>('/api/knowledge/status').then((result) => {
     cache.set(cacheKey, result, { ttl: 2 * 60 * 1000 }) // 2 minutes for knowledge base
     return result
   })

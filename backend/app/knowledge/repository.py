@@ -487,57 +487,50 @@ class KnowledgeRepository:
             await self.session.scalar(select(func.count()).select_from(KnowledgeChunk)) or 0
         )
 
+        doc_counts_rows = await self.session.execute(
+            select(KnowledgeDocument.source_key, func.count())
+            .select_from(KnowledgeDocumentVersion)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+            .where(KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value)
+            .group_by(KnowledgeDocument.source_key)
+        )
+        doc_counts = dict(doc_counts_rows.all())
+
+        chunk_counts_rows = await self.session.execute(
+            select(KnowledgeDocument.source_key, func.count())
+            .select_from(KnowledgeChunk)
+            .join(KnowledgeDocumentVersion, KnowledgeDocumentVersion.id == KnowledgeChunk.document_version_id)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+            .group_by(KnowledgeDocument.source_key)
+        )
+        chunk_counts = dict(chunk_counts_rows.all())
+
+        failed_counts_rows = await self.session.execute(
+            select(KnowledgeFailedResource.source_key, func.count())
+            .where(KnowledgeFailedResource.status == "PENDING")
+            .group_by(KnowledgeFailedResource.source_key)
+        )
+        failed_counts = dict(failed_counts_rows.all())
+
+        coverage_res = await self.session.execute(
+            select(KnowledgeDocument.source_key, KnowledgeDocumentVersion.coverage_categories)
+            .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
+            .join(KnowledgeChunk, KnowledgeChunk.document_version_id == KnowledgeDocumentVersion.id)
+            .where(KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value)
+        )
+        
+        from collections import defaultdict
+        coverage_by_source = defaultdict(list)
+        for row in coverage_res:
+            coverage_by_source[row[0]].append(row[1])
+
         source_rows: list[dict[str, object]] = []
         for source in sources:
-            current_documents = int(
-                await self.session.scalar(
-                    select(func.count())
-                    .select_from(KnowledgeDocumentVersion)
-                    .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
-                    .where(
-                        KnowledgeDocument.source_key == source.key,
-                        KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value,
-                    )
-                )
-                or 0
-            )
-            source_chunks = int(
-                await self.session.scalar(
-                    select(func.count())
-                    .select_from(KnowledgeChunk)
-                    .join(
-                        KnowledgeDocumentVersion,
-                        KnowledgeDocumentVersion.id == KnowledgeChunk.document_version_id,
-                    )
-                    .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
-                    .where(KnowledgeDocument.source_key == source.key)
-                )
-                or 0
-            )
-            failed_resource_count = int(
-                await self.session.scalar(
-                    select(func.count())
-                    .select_from(KnowledgeFailedResource)
-                    .where(
-                        KnowledgeFailedResource.source_key == source.key,
-                        KnowledgeFailedResource.status == "PENDING",
-                    )
-                )
-                or 0
-            )
-            coverage_rows = list(
-                (
-                    await self.session.scalars(
-                        select(KnowledgeDocumentVersion.coverage_categories)
-                        .join(KnowledgeDocument, KnowledgeDocument.id == KnowledgeDocumentVersion.document_id)
-                        .join(KnowledgeChunk, KnowledgeChunk.document_version_id == KnowledgeDocumentVersion.id)
-                        .where(
-                            KnowledgeDocument.source_key == source.key,
-                            KnowledgeDocumentVersion.status == DocumentStatus.CURRENT.value,
-                        )
-                    )
-                ).all()
-            )
+            current_documents = doc_counts.get(source.key, 0)
+            source_chunks = chunk_counts.get(source.key, 0)
+            failed_resource_count = failed_counts.get(source.key, 0)
+            
+            coverage_rows = coverage_by_source.get(source.key, [])
             expected_categories = _normalized_categories(tuple(source.expected_categories))
             covered_categories = tuple(
                 sorted(
