@@ -352,16 +352,16 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
           const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
-                'Guest',
-                style: TextStyle(
+                isGuest ? 'Guest' : 'User',
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF111827),
                 ),
               ),
-              Text(
+              const Text(
                 'Sahayak AI',
                 style: TextStyle(
                   fontSize: 11,
@@ -372,26 +372,91 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
             ],
           ),
           const Spacer(),
-          GestureDetector(
-            onTap: () {
-              context.push('/login');
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
-                borderRadius: BorderRadius.circular(18),
+          
+          // Show notification bell if signed in, otherwise show Sign in button
+          if (isGuest)
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                context.push('/login');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Text(
+                  'Sign in',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF111827),
+                  ),
+                ),
               ),
-              child: const Text(
-                'Sign in',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF111827),
+            )
+          else
+            GestureDetector(
+              onTap: () {
+                HapticFeedback.lightImpact();
+                // TODO: Navigate to notifications screen
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('You have 2 unread notifications'),
+                    behavior: SnackBarBehavior.floating,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F4F6),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.notifications_outlined,
+                        color: Color(0xFF111827),
+                        size: 22,
+                      ),
+                    ),
+                    // Notification badge
+                    Positioned(
+                      right: 4,
+                      top: 4,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEF4444), // Red badge
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '2',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
