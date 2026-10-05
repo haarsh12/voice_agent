@@ -84,6 +84,7 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/logo/
+    - assets/iconsahayak.png
 
   # Fonts are optional - uncomment when you add Inter font files
   # fonts:

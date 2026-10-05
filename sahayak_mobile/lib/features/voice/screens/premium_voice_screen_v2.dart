@@ -572,14 +572,14 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
           Container(
             width: 40,
             height: 40,
-            decoration: const BoxDecoration(
-              color: Color(0xFFF3F4F6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFA73439), // Brand red color
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.person_outline_rounded,
-              color: Color(0xFF6B7280),
-              size: 20,
+            padding: const EdgeInsets.all(8),
+            child: Image.asset(
+              'assets/iconsahayak.png',
+              fit: BoxFit.contain,
             ),
           ),
           const SizedBox(width: 10),
