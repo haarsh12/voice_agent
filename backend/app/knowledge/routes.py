@@ -58,7 +58,7 @@ class KnowledgeBaseSourceSummary(BaseModel):
     ingestion_state: Literal["INGESTED", "NOT_INGESTED"]
     failed_resource_count: int = Field(ge=0)
     validation_status: Literal["APPROVED", "DISABLED", "CHECK_FAILED", "REVIEW_REQUIRED"]
-    check_interval_hours: int = Field(ge=1)
+    check_interval_hours: int = Field(ge=0)
     last_successful_check_at: datetime | None = None
     last_detected_change_at: datetime | None = None
     last_successful_ingestion_at: datetime | None = None
