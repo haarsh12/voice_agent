@@ -213,6 +213,7 @@ class SahayakAssistant(Agent):
         """
 
         if self._account_id is None:
+            logger.warning("grievance_draft_creation_failed reason=no_account_id")
             return {"saved": False, "message": "Sign in is required to save a grievance draft."}
         try:
             payload = GrievanceCreateRequest(
@@ -221,23 +222,31 @@ class SahayakAssistant(Agent):
                 organization=organization,
                 state=state,
             )
-        except Exception:
+        except Exception as error:
+            logger.error("grievance_draft_payload_validation_failed error=%s", error, exc_info=True)
             return {"saved": False, "message": "I need a short factual description to save a draft."}
         factory = get_session_factory()
         if factory is None:
+            logger.error("grievance_draft_creation_failed reason=no_session_factory")
             return {"saved": False, "message": "Grievance saving is unavailable right now."}
-        async with factory() as session:
-            account = await session.get(Account, self._account_id)
-            if account is None or not account.is_active:
-                return {"saved": False, "message": "Your signed-in account is unavailable."}
-            grievance = await create_grievance_draft(session, account, payload)
-            response = await serialize_grievance(session, grievance, include_events=False)
-        await self._notify_grievance(response.id)
-        return {
-            "saved": True,
-            "missing_information": response.missing_fields,
-            "message": "An editable draft is saved in the grievance workspace. It has not been submitted.",
-        }
+        try:
+            async with factory() as session:
+                account = await session.get(Account, self._account_id)
+                if account is None or not account.is_active:
+                    logger.warning("grievance_draft_creation_failed reason=invalid_account account_id=%s", self._account_id)
+                    return {"saved": False, "message": "Your signed-in account is unavailable."}
+                grievance = await create_grievance_draft(session, account, payload)
+                response = await serialize_grievance(session, grievance, include_events=False)
+            await self._notify_grievance(response.id)
+            logger.info("grievance_draft_created grievance_id=%s account_id=%s", response.id, self._account_id)
+            return {
+                "saved": True,
+                "missing_information": response.missing_fields,
+                "message": "An editable draft is saved in the grievance workspace. It has not been submitted.",
+            }
+        except Exception as error:
+            logger.error("grievance_draft_creation_failed error=%s", error, exc_info=True)
+            return {"saved": False, "message": "Failed to save the grievance draft. Please try again."}
 
     @function_tool()
     async def update_latest_grievance_draft(
@@ -259,6 +268,7 @@ class SahayakAssistant(Agent):
         """
 
         if self._account_id is None:
+            logger.warning("grievance_draft_update_failed reason=no_account_id")
             return {"updated": False, "message": "Sign in is required to save a grievance draft."}
         try:
             payload = GrievanceDraftInput(
@@ -271,28 +281,38 @@ class SahayakAssistant(Agent):
                 amount_description=amount_description,
                 prior_reference=prior_reference,
             )
-        except Exception:
+        except Exception as error:
+            logger.error("grievance_draft_update_payload_validation_failed error=%s", error, exc_info=True)
             return {"updated": False, "message": "That detail could not be saved. Ask the member to say it again."}
         if not payload.model_fields_set:
+            logger.warning("grievance_draft_update_failed reason=no_fields_set")
             return {"updated": False, "message": "No new grievance detail was provided."}
         factory = get_session_factory()
         if factory is None:
+            logger.error("grievance_draft_update_failed reason=no_session_factory")
             return {"updated": False, "message": "Grievance saving is unavailable right now."}
-        async with factory() as session:
-            account = await session.get(Account, self._account_id)
-            if account is None or not account.is_active:
-                return {"updated": False, "message": "Your signed-in account is unavailable."}
-            grievance = await session.scalar(
-                select(Grievance)
-                .where(Grievance.account_id == account.id, Grievance.status.in_({"DRAFT", "READY_FOR_CONFIRMATION"}))
-                .order_by(Grievance.updated_at.desc()).limit(1)
-            )
-            if grievance is None:
-                return {"updated": False, "message": "There is no editable grievance draft yet."}
-            await update_grievance_draft(session, grievance, payload, expected_version=grievance.version)
-            response = await serialize_grievance(session, grievance, include_events=False)
-        await self._notify_grievance(response.id)
-        return {"updated": True, "missing_information": response.missing_fields, "message": "The draft was updated and has not been submitted."}
+        try:
+            async with factory() as session:
+                account = await session.get(Account, self._account_id)
+                if account is None or not account.is_active:
+                    logger.warning("grievance_draft_update_failed reason=invalid_account account_id=%s", self._account_id)
+                    return {"updated": False, "message": "Your signed-in account is unavailable."}
+                grievance = await session.scalar(
+                    select(Grievance)
+                    .where(Grievance.account_id == account.id, Grievance.status.in_({"DRAFT", "READY_FOR_CONFIRMATION"}))
+                    .order_by(Grievance.updated_at.desc()).limit(1)
+                )
+                if grievance is None:
+                    logger.warning("grievance_draft_update_failed reason=no_editable_draft account_id=%s", self._account_id)
+                    return {"updated": False, "message": "There is no editable grievance draft yet."}
+                await update_grievance_draft(session, grievance, payload, expected_version=grievance.version)
+                response = await serialize_grievance(session, grievance, include_events=False)
+            await self._notify_grievance(response.id)
+            logger.info("grievance_draft_updated grievance_id=%s account_id=%s", response.id, self._account_id)
+            return {"updated": True, "missing_information": response.missing_fields, "message": "The draft was updated and has not been submitted."}
+        except Exception as error:
+            logger.error("grievance_draft_update_failed error=%s", error, exc_info=True)
+            return {"updated": False, "message": "Failed to update the grievance draft. Please try again."}
 
     @function_tool()
     async def prepare_latest_grievance_preview(self) -> dict[str, object]:
@@ -304,31 +324,40 @@ class SahayakAssistant(Agent):
         """
 
         if self._account_id is None:
+            logger.warning("grievance_preview_failed reason=no_account_id")
             return {"ready": False, "message": "Sign in is required to review a saved grievance."}
         factory = get_session_factory()
         if factory is None:
+            logger.error("grievance_preview_failed reason=no_session_factory")
             return {"ready": False, "message": "Grievance review is unavailable right now."}
-        async with factory() as session:
-            grievance = await session.scalar(
-                select(Grievance)
-                .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.DRAFT.value)
-                .order_by(Grievance.updated_at.desc()).limit(1)
-            )
-            if grievance is None:
-                return {"ready": False, "message": "There is no editable grievance draft to review."}
-            try:
-                await prepare_confirmation(session, grievance, expected_version=grievance.version)
-            except HTTPException as error:
-                return {"ready": False, "missing_information": missing_fields(grievance), "message": str(error.detail)}
-            response = await serialize_grievance(session, grievance, include_events=False)
-        await self._notify_grievance(response.id)
-        return {
-            "ready": True,
-            "subject": response.subject,
-            "category": response.category.value,
-            "authority": response.authority_name,
-            "message": "The full preview is displayed in the grievance workspace. Ask the member to review it there before confirming.",
-        }
+        try:
+            async with factory() as session:
+                grievance = await session.scalar(
+                    select(Grievance)
+                    .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.DRAFT.value)
+                    .order_by(Grievance.updated_at.desc()).limit(1)
+                )
+                if grievance is None:
+                    logger.warning("grievance_preview_failed reason=no_draft account_id=%s", self._account_id)
+                    return {"ready": False, "message": "There is no editable grievance draft to review."}
+                try:
+                    await prepare_confirmation(session, grievance, expected_version=grievance.version)
+                except HTTPException as error:
+                    logger.warning("grievance_preview_validation_failed account_id=%s error=%s", self._account_id, error.detail)
+                    return {"ready": False, "missing_information": missing_fields(grievance), "message": str(error.detail)}
+                response = await serialize_grievance(session, grievance, include_events=False)
+            await self._notify_grievance(response.id)
+            logger.info("grievance_preview_prepared grievance_id=%s account_id=%s", response.id, self._account_id)
+            return {
+                "ready": True,
+                "subject": response.subject,
+                "category": response.category.value,
+                "authority": response.authority_name,
+                "message": "The full preview is displayed in the grievance workspace. Ask the member to review it there before confirming.",
+            }
+        except Exception as error:
+            logger.error("grievance_preview_failed error=%s", error, exc_info=True)
+            return {"ready": False, "message": "Failed to prepare the grievance preview. Please try again."}
 
     @function_tool()
     async def confirm_latest_grievance(self) -> dict[str, object]:
@@ -340,22 +369,30 @@ class SahayakAssistant(Agent):
         """
 
         if self._account_id is None:
+            logger.warning("grievance_confirmation_failed reason=no_account_id")
             return {"confirmed": False, "message": "Sign in is required to confirm a saved grievance."}
         factory = get_session_factory()
         if factory is None:
+            logger.error("grievance_confirmation_failed reason=no_session_factory")
             return {"confirmed": False, "message": "Grievance confirmation is unavailable right now."}
-        async with factory() as session:
-            grievance = await session.scalar(
-                select(Grievance)
-                .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.READY_FOR_CONFIRMATION.value)
-                .order_by(Grievance.updated_at.desc()).limit(1)
-            )
-            if grievance is None:
-                return {"confirmed": False, "message": "There is no reviewed grievance waiting for confirmation."}
-            await confirm_grievance(session, grievance, expected_version=grievance.version)
-            response = await serialize_grievance(session, grievance, include_events=False)
-        await self._notify_grievance(response.id)
-        return {"confirmed": True, "message": "The draft confirmation is recorded. Open the official portal from the grievance workspace to lodge it yourself."}
+        try:
+            async with factory() as session:
+                grievance = await session.scalar(
+                    select(Grievance)
+                    .where(Grievance.account_id == self._account_id, Grievance.status == GrievanceStatus.READY_FOR_CONFIRMATION.value)
+                    .order_by(Grievance.updated_at.desc()).limit(1)
+                )
+                if grievance is None:
+                    logger.warning("grievance_confirmation_failed reason=no_ready_grievance account_id=%s", self._account_id)
+                    return {"confirmed": False, "message": "There is no reviewed grievance waiting for confirmation."}
+                await confirm_grievance(session, grievance, expected_version=grievance.version)
+                response = await serialize_grievance(session, grievance, include_events=False)
+            await self._notify_grievance(response.id)
+            logger.info("grievance_confirmed grievance_id=%s account_id=%s", response.id, self._account_id)
+            return {"confirmed": True, "message": "The draft confirmation is recorded. Open the official portal from the grievance workspace to lodge it yourself."}
+        except Exception as error:
+            logger.error("grievance_confirmation_failed error=%s", error, exc_info=True)
+            return {"confirmed": False, "message": "Failed to confirm the grievance. Please try again."}
 
     @function_tool()
     async def get_my_latest_grievance_status(self) -> dict[str, object]:
@@ -368,29 +405,37 @@ class SahayakAssistant(Agent):
         """
 
         if self._account_id is None:
+            logger.warning("grievance_status_check_failed reason=no_account_id")
             return {"found": False, "message": "Sign in is required to view saved grievance records."}
         factory = get_session_factory()
         if factory is None:
+            logger.error("grievance_status_check_failed reason=no_session_factory")
             return {"found": False, "message": "Grievance records are unavailable right now."}
-        async with factory() as session:
-            grievance = await session.scalar(
-                select(Grievance)
-                .where(Grievance.account_id == self._account_id)
-                .order_by(Grievance.updated_at.desc()).limit(1)
-            )
-            if grievance is None:
-                return {"found": False, "message": "No saved grievance was found."}
-            response = await serialize_grievance(session, grievance, include_events=False)
-        return {
-            "found": True,
-            "subject": response.subject or "grievance draft",
-            "state": response.status.value,
-            "official_reference": response.official_reference,
-            "created_at": response.created_at.isoformat(),
-            "last_updated_at": response.updated_at.isoformat(),
-            "last_official_status_checked_at": response.last_status_checked_at.isoformat() if response.last_status_checked_at else None,
-            "message": "This is the saved Sahayak record. No live official-status integration is configured for this grievance.",
-        }
+        try:
+            async with factory() as session:
+                grievance = await session.scalar(
+                    select(Grievance)
+                    .where(Grievance.account_id == self._account_id)
+                    .order_by(Grievance.updated_at.desc()).limit(1)
+                )
+                if grievance is None:
+                    logger.warning("grievance_status_check_failed reason=no_grievance account_id=%s", self._account_id)
+                    return {"found": False, "message": "No saved grievance was found."}
+                response = await serialize_grievance(session, grievance, include_events=False)
+            logger.info("grievance_status_checked grievance_id=%s account_id=%s status=%s", response.id, self._account_id, response.status.value)
+            return {
+                "found": True,
+                "subject": response.subject or "grievance draft",
+                "state": response.status.value,
+                "official_reference": response.official_reference,
+                "created_at": response.created_at.isoformat(),
+                "last_updated_at": response.updated_at.isoformat(),
+                "last_official_status_checked_at": response.last_status_checked_at.isoformat() if response.last_status_checked_at else None,
+                "message": "This is the saved Sahayak record. No live official-status integration is configured for this grievance.",
+            }
+        except Exception as error:
+            logger.error("grievance_status_check_failed error=%s", error, exc_info=True)
+            return {"found": False, "message": "Failed to check the grievance status. Please try again."}
 
     async def on_user_turn_completed(
         self,

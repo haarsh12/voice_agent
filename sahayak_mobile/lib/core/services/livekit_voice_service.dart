@@ -106,6 +106,12 @@ class LiveKitVoiceService {
         })
         ..on<TrackPublishedEvent>((event) {
           _logger.d('Track published: ${event.publication.sid}');
+        })
+        ..on<TrackSubscribedEvent>((event) {
+          _logger.d('Track subscribed: ${event.track.sid}');
+        })
+        ..on<TranscriptionEvent>((event) {
+          _onTranscriptionReceived(event);
         });
 
       _room = room;
@@ -210,30 +216,57 @@ class LiveKitVoiceService {
     _logger.d('Disconnected from voice service');
   }
 
+  /// Handle transcription received from LiveKit room
+  void _onTranscriptionReceived(TranscriptionEvent event) {
+    try {
+      final segments = event.segments;
+      if (segments.isEmpty) return;
+
+      // Get the participant who is speaking
+      final participantIdentity = event.participant.identity;
+      final isAgent = participantIdentity.contains('agent') || participantIdentity.contains('sahayak');
+      
+      // Combine all segments into one text
+      final text = segments.map((s) => s.text).join(' ').trim();
+      
+      if (text.isEmpty) return;
+
+      _logger.i('📝 Transcription: ${isAgent ? "AGENT" : "USER"} -> $text');
+      
+      // Emit transcript event
+      final eventType = isAgent ? 'agent_transcript' : 'user_transcript';
+      _uiEvents.add(VoiceUiEvent(eventType, {
+        'text': text,
+        'participant': participantIdentity,
+      }));
+    } catch (e) {
+      _logger.e('Error processing transcription: $e');
+    }
+  }
+
   /// Handle data received from LiveKit
   void _onDataReceived(DataReceivedEvent event) {
     _logger.d('📡 Data received on topic: ${event.topic}');
 
-    if (event.topic != 'sahayak.ui' && event.topic != 'vyamit.ui') {
-      _logger.d('Ignoring non-sahayak.ui topic');
+    // Handle UI control events
+    if (event.topic == 'sahayak.ui' || event.topic == 'vyamit.ui') {
+      try {
+        final decoded = jsonDecode(utf8.decode(event.data));
+        if (decoded is! Map) return;
+
+        final payload = Map<String, dynamic>.from(decoded);
+        final type = payload.remove('type')?.toString();
+
+        if (type == null || type.isEmpty) return;
+
+        _logger.d('📡 Publishing VoiceUiEvent: type=$type');
+        _uiEvents.add(VoiceUiEvent(type, payload));
+      } on FormatException catch (e) {
+        _logger.e('Failed to parse data: $e');
+      } catch (e) {
+        _logger.e('Error processing data: $e');
+      }
       return;
-    }
-
-    try {
-      final decoded = jsonDecode(utf8.decode(event.data));
-      if (decoded is! Map) return;
-
-      final payload = Map<String, dynamic>.from(decoded);
-      final type = payload.remove('type')?.toString();
-
-      if (type == null || type.isEmpty) return;
-
-      _logger.d('📡 Publishing VoiceUiEvent: type=$type');
-      _uiEvents.add(VoiceUiEvent(type, payload));
-    } on FormatException catch (e) {
-      _logger.e('Failed to parse data: $e');
-    } catch (e) {
-      _logger.e('Error processing data: $e');
     }
   }
 

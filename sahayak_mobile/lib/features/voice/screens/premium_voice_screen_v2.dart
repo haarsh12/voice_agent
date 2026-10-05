@@ -245,21 +245,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
 
     final voiceProvider = context.read<VoiceProvider>();
     
-    // Send text - works even without voice connection
-    if (voiceProvider.isConnected) {
-      voiceProvider.sendText(text);
-    } else {
-      // Add to local transcript even without connection
-      // This simulates sending a message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Message: $text'),
-          backgroundColor: const Color(0xFF10B981),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+    // Send text - VoiceProvider handles it whether connected or not
+    voiceProvider.sendText(text);
 
     _messageController.clear();
     HapticFeedback.lightImpact();
@@ -519,10 +506,19 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: hasTranscript ? Colors.white : const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE5E7EB),
+          width: 1.5,
+        ),
+      ),
       child: hasTranscript
           ? ListView.builder(
               controller: _transcriptScroll,
+              padding: const EdgeInsets.all(20),
               itemCount: transcript.length,
               itemBuilder: (context, index) {
                 final entry = transcript[index];
@@ -530,54 +526,37 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                 final isUser = speaker == 'user';
                 final text = entry['text']?.toString() ?? '';
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Row(
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isUser 
+                        ? const Color(0xFFF3F4F6) 
+                        : const Color(0xFFECFDF5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Avatar
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: isUser
-                              ? const Color(0xFF3B82F6).withOpacity(0.1)
-                              : const Color(0xFF10B981).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          isUser ? Icons.person : Icons.smart_toy_rounded,
-                          size: 16,
-                          color: isUser
-                              ? const Color(0xFF3B82F6)
-                              : const Color(0xFF10B981),
+                      // Label: YOU or SAHAYAK AI
+                      Text(
+                        isUser ? 'YOU' : 'SAHAYAK AI',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF6B7280),
+                          letterSpacing: 0.5,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      // Message
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isUser ? 'You' : 'Sahayak AI',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF6B7280),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              text,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w400,
-                                color: Color(0xFF111827),
-                                height: 1.5,
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 8),
+                      // Message text
+                      Text(
+                        text,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w400,
+                          color: Color(0xFF111827),
+                          height: 1.6,
                         ),
                       ),
                     ],
@@ -586,30 +565,33 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               },
             )
           : Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Text(
-                    'Good morning, there! 👋',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827),
-                      letterSpacing: -0.5,
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    Text(
+                      'Good morning, there! 👋',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                        letterSpacing: -0.5,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Ask me anything about government\nschemes, grievances, or services.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
+                    SizedBox(height: 10),
+                    Text(
+                      'Ask me anything about government\nschemes, grievances, or services.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Color(0xFF6B7280),
+                        height: 1.5,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
     );

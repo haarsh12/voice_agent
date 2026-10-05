@@ -129,6 +129,7 @@ async def create_draft(session: AsyncSession, account: Account, payload: Grievan
     session.add(_event(grievance, event_type="CREATED", actor="MEMBER", to_status=grievance.status))
     session.add(_event(grievance, event_type="ROUTED", actor="SYSTEM", metadata={"route": grievance.authority_key or ""}))
     await session.commit()
+    await session.refresh(grievance)  # Refresh to ensure object is attached after commit
     return grievance
 
 
@@ -162,6 +163,7 @@ async def update_draft(
         session.add(_event(grievance, event_type="UPDATED", actor="MEMBER"))
     grievance.version += 1
     await session.commit()
+    await session.refresh(grievance)  # Refresh to ensure object is attached after commit
     return grievance
 
 
@@ -180,6 +182,7 @@ async def prepare_confirmation(session: AsyncSession, grievance: Grievance, *, e
     grievance.version += 1
     session.add(_event(grievance, event_type="READY", actor="SYSTEM", from_status=old, to_status=new))
     await session.commit()
+    await session.refresh(grievance)  # Refresh to ensure object is attached after commit
     return grievance
 
 
@@ -191,6 +194,7 @@ async def confirm(session: AsyncSession, grievance: Grievance, *, expected_versi
     grievance.version += 1
     session.add(_event(grievance, event_type="CONFIRMED", actor="MEMBER", from_status=old, to_status=new))
     await session.commit()
+    await session.refresh(grievance)  # Refresh to ensure object is attached after commit
     return grievance
 
 

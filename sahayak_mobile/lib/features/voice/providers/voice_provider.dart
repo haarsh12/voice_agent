@@ -34,7 +34,7 @@ class VoiceProvider extends ChangeNotifier {
   /// Listen to LiveKit voice events
   void _listenToVoiceEvents() {
     _voiceService.events.listen((event) {
-      debugPrint('Voice event: ${event.type}');
+      debugPrint('🎤 Voice event: ${event.type} | payload: ${event.payload}');
 
       switch (event.type) {
         case 'connected':
@@ -42,6 +42,7 @@ class VoiceProvider extends ChangeNotifier {
           _sessionId = event.payload['session_id'];
           _roomName = event.payload['room_name'];
           _errorMessage = null;
+          // Don't add welcome message - transcript should only show real STT/TTS
           break;
 
         case 'disconnected':
@@ -54,20 +55,43 @@ class VoiceProvider extends ChangeNotifier {
           _errorMessage = event.payload['message'] ?? 'Unknown error';
           break;
 
+        // User speech transcript
         case 'transcript':
-          _addToTranscript(event.payload);
+        case 'user_transcript':
+        case 'stt_transcript':
+          final text = event.payload['text']?.toString().trim() ?? 
+                      event.payload['transcript']?.toString().trim() ?? '';
+          if (text.isNotEmpty) {
+            _addToTranscript({
+              'speaker': 'user',
+              'text': text,
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+          }
           break;
 
+        // Agent response
         case 'agent_response':
-          _addToTranscript({
-            'speaker': 'agent',
-            'text': event.payload['text'],
-            'timestamp': DateTime.now().toIso8601String(),
-          });
+        case 'agent_transcript':
+        case 'tts_text':
+          final text = event.payload['text']?.toString().trim() ?? '';
+          if (text.isNotEmpty) {
+            _addToTranscript({
+              'speaker': 'agent',
+              'text': text,
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+          }
+          break;
+
+        // Agent state updates
+        case 'agent_state':
+          final state = event.payload['state']?.toString() ?? '';
+          debugPrint('🤖 Agent state: $state');
           break;
 
         default:
-          debugPrint('Unhandled event type: ${event.type}');
+          debugPrint('ℹ️ Unhandled event type: ${event.type}');
       }
 
       notifyListeners();
@@ -134,20 +158,32 @@ class VoiceProvider extends ChangeNotifier {
     }
   }
 
-  /// Send text message
+  /// Send text message (works with or without voice connection)
   Future<void> sendText(String text) async {
-    if (_connectionState != VoiceConnectionState.connected || text.trim().isEmpty) {
+    if (text.trim().isEmpty) {
       return;
     }
     
-    // Add to local transcript immediately
+    // Always add to local transcript immediately
     _addToTranscript({
       'speaker': 'user',
       'text': text,
       'timestamp': DateTime.now().toIso8601String(),
     });
     
-    await _voiceService.sendText(text);
+    // Send via voice service if connected
+    if (_connectionState == VoiceConnectionState.connected) {
+      await _voiceService.sendText(text);
+    } else {
+      // Simulate a response when not connected (for testing)
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _addToTranscript({
+          'speaker': 'agent',
+          'text': 'Voice session is not active. Please tap the voice circle to start a conversation.',
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      });
+    }
   }
 
   /// Add message to transcript
