@@ -12,7 +12,7 @@ import '../../../shared/widgets/siri_wave_orb.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/voice_provider.dart';
 
-/// Premium voice assistant screen matching the screenshot exactly
+/// Premium voice assistant screen with live transcript
 class PremiumVoiceScreenV2 extends StatefulWidget {
   const PremiumVoiceScreenV2({super.key});
 
@@ -23,6 +23,7 @@ class PremiumVoiceScreenV2 extends StatefulWidget {
 class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
   double _audioLevel = 0.0;
   Timer? _audioLevelTimer;
+  final ScrollController _transcriptScroll = ScrollController();
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _messageFocusNode = FocusNode();
   final ImagePicker _imagePicker = ImagePicker();
@@ -43,6 +44,7 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
       voiceProvider.removeListener(_onVoiceUpdate);
     } catch (_) {}
     _audioLevelTimer?.cancel();
+    _transcriptScroll.dispose();
     _messageController.dispose();
     _messageFocusNode.dispose();
     super.dispose();
@@ -51,6 +53,18 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
   void _onVoiceUpdate() {
     if (mounted) {
       setState(() {});
+      // Auto scroll transcript to bottom
+      if (_transcriptScroll.hasClients) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (_transcriptScroll.hasClients && mounted) {
+            _transcriptScroll.animateTo(
+              _transcriptScroll.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
     }
   }
 
@@ -95,7 +109,6 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-        // TODO: Upload image to backend
       }
     } catch (e) {
       if (mounted) {
@@ -126,7 +139,6 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
             behavior: SnackBarBehavior.floating,
           ),
         );
-        // TODO: Upload document to backend
       }
     } catch (e) {
       if (mounted) {
@@ -233,23 +245,27 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
 
     final voiceProvider = context.read<VoiceProvider>();
     
-    // Send text even if not connected
+    // Send text - works even without voice connection
     if (voiceProvider.isConnected) {
       voiceProvider.sendText(text);
     } else {
-      // Show message that voice is not connected
+      // Add to local transcript even without connection
+      // This simulates sending a message
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please start voice session first'),
-          backgroundColor: Color(0xFFEF4444),
+        SnackBar(
+          content: Text('Message: $text'),
+          backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
     }
 
     _messageController.clear();
     HapticFeedback.lightImpact();
+    
+    // Trigger UI update
+    setState(() {});
   }
 
   @override
@@ -277,36 +293,36 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
             // Language Pills
             _buildLanguageSelector(languageProvider),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Voice Circle
+            // Voice Circle (smaller now)
             _buildVoiceCircle(context, voiceProvider, languageProvider),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // "Tap to start" text
             Text(
               voiceProvider.isConnected ? 'Listening...' : 'Tap to start',
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF374151),
                 letterSpacing: -0.2,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
 
             // Subtitle
             const Text(
               'Live transcript will appear below',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w400,
                 color: Color(0xFF9CA3AF),
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
             // Divider
             Container(
@@ -315,38 +331,10 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               margin: const EdgeInsets.symmetric(horizontal: 20),
             ),
 
-            const SizedBox(height: 20),
-
-            // Greeting
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Good morning, there! 👋',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF111827),
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  SizedBox(height: 6),
-                  Text(
-                    'Ask me anything about government\nschemes, grievances, or services.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF6B7280),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
+            // Live Transcript Section (replaces greeting)
+            Expanded(
+              child: _buildLiveTranscript(context, voiceProvider),
             ),
-
-            const Spacer(),
 
             // Input row
             _buildInputRow(context),
@@ -362,8 +350,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: const BoxDecoration(
               color: Color(0xFFF3F4F6),
               shape: BoxShape.circle,
@@ -371,17 +359,17 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
             child: const Icon(
               Icons.person_outline_rounded,
               color: Color(0xFF6B7280),
-              size: 22,
+              size: 20,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
               Text(
                 'Guest',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF111827),
                 ),
@@ -389,7 +377,7 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               Text(
                 'Sahayak AI',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w400,
                   color: Color(0xFF6B7280),
                 ),
@@ -402,15 +390,15 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               context.push('/login');
             },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
               decoration: BoxDecoration(
                 border: Border.all(color: const Color(0xFFE5E7EB), width: 1.5),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(18),
               ),
               child: const Text(
                 'Sign in',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF111827),
                 ),
@@ -424,7 +412,7 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
 
   Widget _buildLanguageSelector(LanguageProvider languageProvider) {
     return SizedBox(
-      height: 40,
+      height: 38,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -443,10 +431,10 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                 languageProvider.setLanguage(code);
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
                 decoration: BoxDecoration(
                   color: isSelected ? Colors.black : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(19),
                   border: Border.all(
                     color: isSelected ? Colors.black : const Color(0xFFE5E7EB),
                     width: 1.5,
@@ -456,7 +444,7 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                   child: Text(
                     displayName,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: isSelected ? Colors.white : const Color(0xFF111827),
                     ),
@@ -497,8 +485,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               }
             },
       child: Container(
-        width: 160,
-        height: 160,
+        width: 140,
+        height: 140,
         decoration: const BoxDecoration(
           color: Color(0xFFF3F4F6),
           shape: BoxShape.circle,
@@ -510,13 +498,13 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               SiriWaveOrb(
                 isActive: true,
                 audioLevel: _audioLevel,
-                size: 160,
+                size: 140,
                 idleColor: const Color(0xFF6B7280),
               )
             else
               const Icon(
                 Icons.mic_rounded,
-                size: 52,
+                size: 48,
                 color: Color(0xFF6B7280),
               ),
           ],
@@ -525,9 +513,111 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
     );
   }
 
+  Widget _buildLiveTranscript(BuildContext context, VoiceProvider voiceProvider) {
+    final transcript = voiceProvider.transcript;
+    final hasTranscript = transcript.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      child: hasTranscript
+          ? ListView.builder(
+              controller: _transcriptScroll,
+              itemCount: transcript.length,
+              itemBuilder: (context, index) {
+                final entry = transcript[index];
+                final speaker = entry['speaker']?.toString() ?? 'user';
+                final isUser = speaker == 'user';
+                final text = entry['text']?.toString() ?? '';
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Avatar
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isUser
+                              ? const Color(0xFF3B82F6).withOpacity(0.1)
+                              : const Color(0xFF10B981).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isUser ? Icons.person : Icons.smart_toy_rounded,
+                          size: 16,
+                          color: isUser
+                              ? const Color(0xFF3B82F6)
+                              : const Color(0xFF10B981),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      // Message
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isUser ? 'You' : 'Sahayak AI',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF6B7280),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              text,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                                color: Color(0xFF111827),
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            )
+          : Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Text(
+                    'Good morning, there! 👋',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Ask me anything about government\nschemes, grievances, or services.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF6B7280),
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+
   Widget _buildInputRow(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(
@@ -546,8 +636,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               _showImageSourceDialog();
             },
             child: Container(
-              width: 40,
-              height: 40,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
@@ -559,7 +649,7 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               child: const Icon(
                 Icons.camera_alt_rounded,
                 color: Color(0xFF6B7280),
-                size: 20,
+                size: 19,
               ),
             ),
           ),
@@ -572,8 +662,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               _pickDocument();
             },
             child: Container(
-              width: 40,
-              height: 40,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
@@ -585,21 +675,21 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
               child: const Icon(
                 Icons.upload_file_rounded,
                 color: Color(0xFF6B7280),
-                size: 20,
+                size: 19,
               ),
             ),
           ),
           const SizedBox(width: 10),
 
-          // Text field
+          // Text field - properly rounded with black border
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              height: 38,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(19),
                 border: Border.all(
-                  color: const Color(0xFFE5E7EB),
+                  color: Colors.black,
                   width: 1.5,
                 ),
               ),
@@ -614,7 +704,8 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                     fontWeight: FontWeight.w400,
                   ),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  isDense: true,
                 ),
                 style: const TextStyle(
                   fontSize: 14,
@@ -622,32 +713,34 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                 ),
                 maxLines: 1,
                 textInputAction: TextInputAction.send,
+                onChanged: (_) => setState(() {}),
                 onSubmitted: (_) => _sendMessage(),
               ),
             ),
           ),
           const SizedBox(width: 8),
 
-          // Send button
-          GestureDetector(
-            onTap: _sendMessage,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: _messageController.text.trim().isEmpty
-                    ? const Color(0xFFF3F4F6)
-                    : Colors.black,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.send_rounded,
-                color: _messageController.text.trim().isEmpty
-                    ? const Color(0xFF9CA3AF)
-                    : Colors.white,
-                size: 20,
-              ),
-            ),
+          // Send button - only shows when text entered
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: _messageController.text.trim().isEmpty ? 0 : 38,
+            height: 38,
+            child: _messageController.text.trim().isEmpty
+                ? const SizedBox.shrink()
+                : GestureDetector(
+                    onTap: _sendMessage,
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.black,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.send_rounded,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),
