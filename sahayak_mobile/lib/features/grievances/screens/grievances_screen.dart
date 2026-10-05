@@ -37,14 +37,14 @@ class _GrievancesScreenState extends State<GrievancesScreen> {
       appBar: AppBar(
         title: const Text('My Grievances'),
       ),
-      body: !authProvider.isAuthenticated 
+      body: authProvider.isGuest 
           ? const EmptyStateWidget(
               icon: Icons.login_rounded,
               title: 'Login Required',
               message: 'Please login to view and manage your grievances.',
             )
           : _buildContent(grievancesProvider),
-      floatingActionButton: !authProvider.isAuthenticated ? null : FloatingActionButton.extended(
+      floatingActionButton: authProvider.isGuest ? null : FloatingActionButton.extended(
         onPressed: () {
           context.push('/grievances/create');
         },

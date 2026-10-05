@@ -2,13 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../shared/providers/language_provider.dart';
 import '../../../shared/widgets/siri_wave_orb.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../providers/voice_provider.dart';
-import '../widgets/enhanced_transcript_widget.dart';
 
 /// Premium voice assistant screen with proper layout
 /// 2/5 top: Voice circle
@@ -24,14 +22,11 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
   double _audioLevel = 0.0;
   Timer? _audioLevelTimer;
   final ScrollController _transcriptScroll = ScrollController();
-  final ImagePicker _imagePicker = ImagePicker();
-  final TextEditingController _messageController = TextEditingController();
 
   @override
   void dispose() {
     _audioLevelTimer?.cancel();
     _transcriptScroll.dispose();
-    _messageController.dispose();
     super.dispose();
   }
 
@@ -57,64 +52,12 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
     if (mounted) setState(() => _audioLevel = 0.0);
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final XFile? image = await _imagePicker.pickImage(
-        source: source,
-        maxWidth: 1920,
-        maxHeight: 1920,
-        imageQuality: 85,
-      );
-
-      if (image != null && mounted) {
-        // TODO: Upload image to backend
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Selected: ${image.name}'),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to pick image: $e'),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _sendTextMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-
-    final voiceProvider = context.read<VoiceProvider>();
-    if (!voiceProvider.isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please connect first'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    await voiceProvider.sendText(text);
-    _messageController.clear();
-  }
-
   @override
   Widget build(BuildContext context) {
     final voiceProvider = context.watch<VoiceProvider>();
     final languageProvider = context.watch<LanguageProvider>();
     final authProvider = context.watch<AuthProvider>();
     final isGuest = !authProvider.isAuthenticated;
-    final hasTranscript = voiceProvider.transcript.isNotEmpty;
 
     // Manage audio animation
     if (voiceProvider.isConnected && _audioLevelTimer == null) {
@@ -124,276 +67,27 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: const Color(0xFFF8F9FA), // Light gray background
       body: SafeArea(
         child: Column(
           children: [
-            // Header
+            // Header with user info
             _buildHeader(context, isGuest),
 
-            // Main content area
+            // Voice Circle Section (2/5 of remaining space)
             Expanded(
-              child: Column(
-                children: [
-                  // Language selector
-                  _buildLanguageSelector(languageProvider),
-                  
-                  const SizedBox(height: 16),
-
-                  // Voice circle section
-                  _buildVoiceCircle(voiceProvider, languageProvider),
-                  
-                  // Action buttons
-                  _buildActionButtons(context, voiceProvider, languageProvider, 
-                      voiceProvider.connectionState == VoiceConnectionState.connecting),
-                  
-                  const SizedBox(height: 16),
-
-                  // Transcript box or welcome message
-                  Expanded(
-                    child: hasTranscript
-                        ? _buildTranscriptBox(voiceProvider)
-                        : _buildWelcomeMessage(),
-                  ),
-                ],
+              flex: 2,
+              child: _buildVoiceSection(
+                context,
+                voiceProvider,
+                languageProvider,
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  Widget _buildWelcomeMessage() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Good morning, there! 👋',
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1F2937),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Ask me anything about government\nschemes, grievances, or services.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              color: const Color(0xFF6B7280),
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTranscriptBox(VoiceProvider voiceProvider) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            offset: const Offset(0, 4),
-            blurRadius: 16,
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: const Color(0xFFE5E7EB),
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF8B5CF6),
-                        const Color(0xFF7C3AED),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.chat_bubble_rounded,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'Live Transcript',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F2937),
-                  ),
-                ),
-                const Spacer(),
-                if (voiceProvider.isConnected)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF10B981),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'LIVE',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF10B981),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-
-          // Transcript messages
-          Expanded(
-            child: EnhancedTranscriptWidget(
-              transcript: voiceProvider.transcript,
-              scrollController: _transcriptScroll,
-            ),
-          ),
-
-          // Input section
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(
-                  color: const Color(0xFFE5E7EB),
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.camera_alt, color: Color(0xFF6B7280), size: 22),
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: 'Type a message...',
-                      hintStyle: TextStyle(color: const Color(0xFF9CA3AF)),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide(color: const Color(0xFFE5E7EB)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide(color: const Color(0xFFE5E7EB)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
-                        borderSide: BorderSide(color: const Color(0xFF3B82F6), width: 2),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      isDense: true,
-                    ),
-                    maxLines: 1,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendTextMessage(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [const Color(0xFF3B82F6), const Color(0xFF2563EB)],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.send, color: Colors.white, size: 18),
-                  ),
-                  onPressed: _sendTextMessage,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVoiceCircle(VoiceProvider voiceProvider, LanguageProvider languageProvider) {
-    final isConnected = voiceProvider.isConnected;
-
-    return SizedBox(
-      height: 200,
-      child: Center(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            if (isConnected) ...[
-              _buildPulsingRing(200, 0.3, const Color(0xFF10B981)),
-              _buildPulsingRing(240, 0.15, const Color(0xFF3B82F6)),
-            ],
-            SiriWaveOrb(
-              isActive: isConnected,
-              audioLevel: _audioLevel,
-              size: 160,
-              onTap: voiceProvider.connectionState == VoiceConnectionState.connecting
-                  ? null
-                  : () async {
-                      HapticFeedback.mediumImpact();
-                      if (isConnected) {
-                        await voiceProvider.disconnect();
-                        HapticFeedback.lightImpact();
-                      } else {
-                        await voiceProvider.connect(
-                          language: languageProvider.currentLanguageCode,
-                        );
-                        if (voiceProvider.isConnected) {
-                          HapticFeedback.heavyImpact();
-                        }
-                      }
-                    },
+            // Live Transcript Section (3/5 of remaining space)
+            Expanded(
+              flex: 3,
+              child: _buildTranscriptSection(context, voiceProvider),
             ),
           ],
         ),
@@ -579,7 +273,7 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
 
   Widget _buildLanguageSelector(LanguageProvider languageProvider) {
     return SizedBox(
-      height: 70,
+      height: 90,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -596,19 +290,26 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              width: 70,
-              margin: const EdgeInsets.only(right: 10),
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+              width: 80,
+              margin: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
               decoration: BoxDecoration(
                 gradient: isSelected
                     ? LinearGradient(
-                        colors: [const Color(0xFF10B981), const Color(0xFF059669)],
+                        colors: [
+                          const Color(0xFF10B981),
+                          const Color(0xFF059669),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       )
                     : null,
                 color: isSelected ? null : Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF10B981) : const Color(0xFFE5E7EB),
+                  color: isSelected
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFE5E7EB),
                   width: isSelected ? 2 : 1,
                 ),
                 boxShadow: [
@@ -616,8 +317,8 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
                     color: isSelected
                         ? const Color(0xFF10B981).withOpacity(0.3)
                         : Colors.black.withOpacity(0.05),
-                    offset: const Offset(0, 2),
-                    blurRadius: isSelected ? 8 : 4,
+                    offset: const Offset(0, 4),
+                    blurRadius: isSelected ? 12 : 8,
                   ),
                 ],
               ),
@@ -627,20 +328,22 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
                   Text(
                     LanguageProvider.languageScriptNames[code] ?? '',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.w700,
                       color: isSelected ? Colors.white : const Color(0xFF1F2937),
                     ),
                     textAlign: TextAlign.center,
                     maxLines: 1,
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Text(
                     LanguageProvider.languageNames[code] ?? '',
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? Colors.white.withOpacity(0.9) : const Color(0xFF6B7280),
+                      color: isSelected
+                          ? Colors.white.withOpacity(0.9)
+                          : const Color(0xFF6B7280),
                     ),
                     textAlign: TextAlign.center,
                     maxLines: 1,
@@ -796,29 +499,11 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
             color: const Color(0xFF3B82F6),
             onTap: () {
               HapticFeedback.lightImpact();
-              showModalBottomSheet(
-                context: context,
-                builder: (context) => SafeArea(
-                  child: Wrap(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.camera_alt, color: Color(0xFF3B82F6)),
-                        title: const Text('Take Photo'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _pickImage(ImageSource.camera);
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.photo_library, color: Color(0xFF3B82F6)),
-                        title: const Text('Choose from Gallery'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _pickImage(ImageSource.gallery);
-                        },
-                      ),
-                    ],
-                  ),
+              // TODO: Implement document upload
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Document upload coming soon'),
+                  behavior: SnackBarBehavior.floating,
                 ),
               );
             },
@@ -968,96 +653,103 @@ class _PremiumVoiceScreenState extends State<PremiumVoiceScreen> {
 
           // Transcript list
           Expanded(
-            child: EnhancedTranscriptWidget(
-              transcript: transcript,
-              scrollController: _transcriptScroll,
-            ),
-          ),
+            child: transcript.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF3F4F6),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.chat_outlined,
+                            size: 48,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No conversation yet',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Start speaking to see the transcript',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _transcriptScroll,
+                    reverse: true, // Scroll upwards like chat
+                    padding: const EdgeInsets.all(20),
+                    itemCount: transcript.length,
+                    itemBuilder: (context, index) {
+                      final reversedIndex = transcript.length - 1 - index;
+                      final entry = transcript[reversedIndex];
+                      final isUser = entry['role'] == 'user';
 
-          // Text input section
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                top: BorderSide(
-                  color: const Color(0xFFE5E7EB),
-                  width: 1,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                // Camera button
-                IconButton(
-                  icon: const Icon(Icons.camera_alt, color: Color(0xFF6B7280)),
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  tooltip: 'Take Photo',
-                ),
-                const SizedBox(width: 8),
-                
-                // Text input
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(
-                          color: const Color(0xFFE5E7EB),
+                      return Align(
+                        alignment: isUser
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          constraints: BoxConstraints(
+                            maxWidth: MediaQuery.of(context).size.width * 0.75,
+                          ),
+                          decoration: BoxDecoration(
+                            gradient: isUser
+                                ? LinearGradient(
+                                    colors: [
+                                      const Color(0xFF3B82F6),
+                                      const Color(0xFF2563EB),
+                                    ],
+                                  )
+                                : null,
+                            color: isUser ? null : const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: isUser
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(0xFF3B82F6)
+                                          .withOpacity(0.3),
+                                      offset: const Offset(0, 2),
+                                      blurRadius: 8,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Text(
+                            entry['text'] ?? '',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: isUser
+                                  ? Colors.white
+                                  : const Color(0xFF1F2937),
+                              height: 1.4,
+                            ),
+                          ),
                         ),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(
-                          color: const Color(0xFFE5E7EB),
-                        ),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide(
-                          color: const Color(0xFF3B82F6),
-                          width: 2,
-                        ),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      isDense: true,
-                    ),
-                    maxLines: 1,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendTextMessage(),
+                      );
+                    },
                   ),
-                ),
-                const SizedBox(width: 8),
-                
-                // Send button
-                IconButton(
-                  icon: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          const Color(0xFF3B82F6),
-                          const Color(0xFF2563EB),
-                        ],
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.send,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                  onPressed: _sendTextMessage,
-                  tooltip: 'Send',
-                ),
-              ],
-            ),
           ),
         ],
       ),

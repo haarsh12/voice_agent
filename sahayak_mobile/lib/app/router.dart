@@ -6,7 +6,6 @@ import '../features/home/screens/landing_screen.dart';
 import '../features/auth/screens/splash_screen.dart';
 import '../features/auth/screens/language_selection_screen.dart';
 import '../features/auth/screens/premium_login_screen.dart';
-import '../features/auth/screens/create_account_screen.dart';
 import '../features/auth/screens/otp_verification_screen.dart';
 import '../features/home/screens/home_shell.dart';
 import '../features/voice/screens/premium_voice_screen_v2.dart';
@@ -57,35 +56,23 @@ class AppRouter {
       ),
       
       GoRoute(
-        path: '/create-account',
-        name: 'create-account',
-        builder: (context, state) {
-          final phoneNumber = state.extra as String? ?? '';
-          return CreateAccountScreen(phoneNumber: phoneNumber);
-        },
-      ),
-      
-      GoRoute(
         path: '/otp-verification',
         name: 'otp-verification',
         builder: (context, state) {
           final extra = state.extra;
           String phone = '';
           bool isRegistering = false;
-          Map<String, dynamic>? registrationData;
           
           if (extra is String) {
             phone = extra;
           } else if (extra is Map<String, dynamic>) {
-            phone = extra['phoneNumber'] as String? ?? extra['phone'] as String? ?? '';
+            phone = extra['phone'] as String? ?? '';
             isRegistering = extra['isRegistering'] as bool? ?? false;
-            registrationData = extra['registrationData'] as Map<String, dynamic>?;
           }
           
           return OtpVerificationScreen(
             phoneNumber: phone,
             isRegistering: isRegistering,
-            registrationData: registrationData,
           );
         },
       ),

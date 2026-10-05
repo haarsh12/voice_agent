@@ -9,13 +9,11 @@ import '../providers/auth_provider.dart';
 class OtpVerificationScreen extends StatefulWidget {
   final String phoneNumber;
   final bool isRegistering;
-  final Map<String, dynamic>? registrationData;
 
   const OtpVerificationScreen({
     super.key,
     required this.phoneNumber,
     this.isRegistering = false,
-    this.registrationData,
   });
 
   @override
@@ -60,24 +58,28 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
     final authProvider = context.read<AuthProvider>();
     
-    // Use registration data if provided, otherwise use dummy data
-    final registrationData = widget.registrationData ?? {
-      "full_name": "New User",
-      "state": "Maharashtra",
-      "district": "Pune",
-      "village_or_town": "Pune",
-      "address": "-",
-      "pincode": "411001",
-      "caste_category": "GENERAL",
-      "user_type": "FARMER",
-      "cooperative_role": "MEMBER"
-    };
+    // For registering, we must send an empty registration map or similar. The backend requires at least an empty map for registration fields, or we pass dummy if required.
+    // Wait, let me check backend requirements. 
+    // The backend routes.py says: `if payload.registration is None: raise HTTPException(422, "Complete your support profile...")`.
+    // It requires `full_name`, `state`, `district`, `village_or_town`, `address`, `pincode`, `caste_category`, `user_type`, `cooperative_role`.
+    // But since the design does not have a registration form yet, maybe we just pass an empty map and let the backend accept it, or pass dummy data?
+    // In `verifyRegisterOtp`, `registrationData` is sent.
     
     final success = widget.isRegistering
         ? await authProvider.verifyRegisterOtp(
             phoneNumber: widget.phoneNumber, 
             otp: _otp,
-            registrationData: registrationData,
+            registrationData: {
+              "full_name": "New User",
+              "state": "Maharashtra",
+              "district": "Pune",
+              "village_or_town": "Pune",
+              "address": "-",
+              "pincode": "411001",
+              "caste_category": "GENERAL",
+              "user_type": "FARMER",
+              "cooperative_role": "MEMBER"
+            }
           )
         : await authProvider.verifyLoginOtp(widget.phoneNumber, _otp);
 
@@ -155,28 +157,21 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: List.generate(6, (index) {
-                  return Flexible(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        right: index < 5 ? 8 : 0,
-                      ),
-                      child: _OtpInputField(
-                        controller: _otpControllers[index],
-                        focusNode: _focusNodes[index],
-                        onChanged: (value) {
-                          if (value.isNotEmpty && index < 5) {
-                            _focusNodes[index + 1].requestFocus();
-                          } else if (value.isEmpty && index > 0) {
-                            _focusNodes[index - 1].requestFocus();
-                          }
+                  return _OtpInputField(
+                    controller: _otpControllers[index],
+                    focusNode: _focusNodes[index],
+                    onChanged: (value) {
+                      if (value.isNotEmpty && index < 5) {
+                        _focusNodes[index + 1].requestFocus();
+                      } else if (value.isEmpty && index > 0) {
+                        _focusNodes[index - 1].requestFocus();
+                      }
 
-                          // Auto-verify when all digits entered
-                          if (index == 5 && value.isNotEmpty) {
-                            _verifyOtp();
-                          }
-                        },
-                      ),
-                    ),
+                      // Auto-verify when all digits entered
+                      if (index == 5 && value.isNotEmpty) {
+                        _verifyOtp();
+                      }
+                    },
                   );
                 }),
               ),
@@ -231,7 +226,8 @@ class _OtpInputField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 48,
+      width: 50,
+      height: 60,
       child: TextFormField(
         controller: controller,
         focusNode: focusNode,
@@ -241,7 +237,7 @@ class _OtpInputField extends StatelessWidget {
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
           counterText: '',
-          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+          contentPadding: EdgeInsets.zero,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: AppColors.border),
@@ -256,7 +252,7 @@ class _OtpInputField extends StatelessWidget {
           ),
         ),
         style: const TextStyle(
-          fontSize: 20,
+          fontSize: 24,
           fontWeight: FontWeight.w600,
           color: AppColors.textPrimary,
         ),

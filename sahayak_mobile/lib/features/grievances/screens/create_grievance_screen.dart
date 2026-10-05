@@ -18,13 +18,10 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
   final _orgController = TextEditingController(); // organization
   final _stateController = TextEditingController(); // state
   final _districtController = TextEditingController(); // district
-  final _localityController = TextEditingController(); // locality (village/town)
   final _amountController = TextEditingController(); // amount_description
   final _referenceController = TextEditingController(); // prior_reference
   
   String? _category = 'OTHER_GOVERNMENT';
-  String? _hasContactedOrg; // null, 'yes', or 'no'
-  DateTime? _incidentDate;
   bool _isLoading = false;
 
   @override
@@ -34,7 +31,6 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
     _orgController.dispose();
     _stateController.dispose();
     _districtController.dispose();
-    _localityController.dispose();
     _amountController.dispose();
     _referenceController.dispose();
     super.dispose();
@@ -46,41 +42,16 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
     setState(() => _isLoading = true);
 
     final grievancesProvider = context.read<GrievancesProvider>();
-    
-    // Prepare grievance data matching website fields
-    final grievanceData = <String, dynamic>{
+    final success = await grievancesProvider.createGrievance({
       'subject': _titleController.text.trim(),
       'description': _descriptionController.text.trim(),
       'category': _category,
-    };
-    
-    // Add optional fields only if they have values
-    if (_orgController.text.trim().isNotEmpty) {
-      grievanceData['organization'] = _orgController.text.trim();
-    }
-    if (_stateController.text.trim().isNotEmpty) {
-      grievanceData['state'] = _stateController.text.trim();
-    }
-    if (_districtController.text.trim().isNotEmpty) {
-      grievanceData['district'] = _districtController.text.trim();
-    }
-    if (_localityController.text.trim().isNotEmpty) {
-      grievanceData['locality'] = _localityController.text.trim();
-    }
-    if (_incidentDate != null) {
-      grievanceData['incident_date'] = _incidentDate!.toIso8601String().split('T')[0];
-    }
-    if (_amountController.text.trim().isNotEmpty) {
-      grievanceData['amount_description'] = _amountController.text.trim();
-    }
-    if (_hasContactedOrg != null) {
-      grievanceData['has_contacted_organization'] = _hasContactedOrg == 'yes';
-    }
-    if (_referenceController.text.trim().isNotEmpty) {
-      grievanceData['prior_reference'] = _referenceController.text.trim();
-    }
-    
-    final success = await grievancesProvider.createGrievance(grievanceData);
+      if (_orgController.text.trim().isNotEmpty) 'organization': _orgController.text.trim(),
+      if (_stateController.text.trim().isNotEmpty) 'state': _stateController.text.trim(),
+      if (_districtController.text.trim().isNotEmpty) 'district': _districtController.text.trim(),
+      if (_amountController.text.trim().isNotEmpty) 'amount_description': _amountController.text.trim(),
+      if (_referenceController.text.trim().isNotEmpty) 'prior_reference': _referenceController.text.trim(),
+    });
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -143,17 +114,11 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
               value: _category,
               decoration: const InputDecoration(),
               items: const [
-                DropdownMenuItem(value: 'PACS_ISSUE', child: Text('PACS issue')),
-                DropdownMenuItem(value: 'COOPERATIVE_SOCIETY', child: Text('Cooperative society issue')),
-                DropdownMenuItem(value: 'PAYMENT', child: Text('Payment issue')),
-                DropdownMenuItem(value: 'LOAN', child: Text('Loan or credit issue')),
-                DropdownMenuItem(value: 'INSURANCE_CLAIM', child: Text('Insurance or claim issue')),
-                DropdownMenuItem(value: 'GOVERNMENT_SCHEME', child: Text('Government scheme issue')),
-                DropdownMenuItem(value: 'AGRICULTURE_SERVICE', child: Text('Agriculture service issue')),
-                DropdownMenuItem(value: 'FINANCIAL_SERVICE', child: Text('Financial service issue')),
-                DropdownMenuItem(value: 'DOCUMENT_CERTIFICATE', child: Text('Document or certificate issue')),
-                DropdownMenuItem(value: 'ADMINISTRATIVE', child: Text('Administrative issue')),
+                DropdownMenuItem(value: 'PACS_FINANCIAL', child: Text('PACS Financial Issue')),
+                DropdownMenuItem(value: 'PACS_OPERATIONAL', child: Text('PACS Operational Issue')),
+                DropdownMenuItem(value: 'REGISTRAR_ISSUE', child: Text('Registrar Issue')),
                 DropdownMenuItem(value: 'OTHER_GOVERNMENT', child: Text('Other government service issue')),
+                DropdownMenuItem(value: 'GENERAL_INQUIRY', child: Text('General Inquiry')),
               ],
               onChanged: (val) {
                 if (val != null) setState(() => _category = val);
@@ -208,64 +173,10 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
             ),
             const SizedBox(height: 20),
 
-            _buildLabel('Village / Town / Locality'),
-            TextFormField(
-              controller: _localityController,
-              decoration: const InputDecoration(hintText: 'Your locality, if known'),
-            ),
-            const SizedBox(height: 20),
-
-            _buildLabel('When did this happen?'),
-            InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _incidentDate ?? DateTime.now(),
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime.now(),
-                );
-                if (picked != null) {
-                  setState(() => _incidentDate = picked);
-                }
-              },
-              child: InputDecorator(
-                decoration: const InputDecoration(
-                  hintText: 'Select date',
-                  suffixIcon: Icon(Icons.calendar_today),
-                ),
-                child: Text(
-                  _incidentDate == null
-                      ? 'Tap to select date'
-                      : '${_incidentDate!.day}/${_incidentDate!.month}/${_incidentDate!.year}',
-                  style: TextStyle(
-                    color: _incidentDate == null 
-                        ? AppColors.textSecondary 
-                        : AppColors.textPrimary,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
             _buildLabel('Amount, if relevant'),
             TextFormField(
               controller: _amountController,
               decoration: const InputDecoration(hintText: 'For example: about ₹5,000'),
-            ),
-            const SizedBox(height: 20),
-
-            _buildLabel('Have you already contacted them?'),
-            DropdownButtonFormField<String>(
-              value: _hasContactedOrg,
-              decoration: const InputDecoration(),
-              items: const [
-                DropdownMenuItem(value: null, child: Text('I do not know / not applicable')),
-                DropdownMenuItem(value: 'yes', child: Text('Yes')),
-                DropdownMenuItem(value: 'no', child: Text('No')),
-              ],
-              onChanged: (val) {
-                setState(() => _hasContactedOrg = val);
-              },
             ),
             const SizedBox(height: 20),
 
@@ -291,41 +202,6 @@ class _CreateGrievanceScreenState extends State<CreateGrievanceScreen> {
                         ),
                       )
                     : const Text('Submit Grievance'),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Info note matching website
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLight.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.primaryLight.withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Only share facts you are comfortable providing. Do not include passwords, PINs, OTPs, or bank card details. Supporting files are never uploaded automatically.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ),
             const SizedBox(height: 40),

@@ -18,7 +18,6 @@ class VoiceProvider extends ChangeNotifier {
   String? _sessionId;
   String? _roomName;
   final List<Map<String, dynamic>> _transcript = [];
-  Map<String, dynamic>? _lastCitations; // Store latest citations
 
   VoiceConnectionState get connectionState => _connectionState;
   bool get isMicEnabled => _isMicEnabled;
@@ -26,7 +25,6 @@ class VoiceProvider extends ChangeNotifier {
   String? get sessionId => _sessionId;
   String? get roomName => _roomName;
   List<Map<String, dynamic>> get transcript => List.unmodifiable(_transcript);
-  Map<String, dynamic>? get lastCitations => _lastCitations;
   bool get isConnected => _connectionState == VoiceConnectionState.connected;
 
   VoiceProvider() {
@@ -68,12 +66,6 @@ class VoiceProvider extends ChangeNotifier {
           });
           break;
 
-        case 'citations':
-          // Store citations for display with agent messages
-          _lastCitations = event.payload;
-          notifyListeners();
-          break;
-
         default:
           debugPrint('Unhandled event type: ${event.type}');
       }
@@ -92,13 +84,15 @@ class VoiceProvider extends ChangeNotifier {
     _connectionState = VoiceConnectionState.connecting;
     _errorMessage = null;
     _transcript.clear();
-    _lastCitations = null;
     notifyListeners();
 
     try {
+      // Backend expects language codes like 'hi-IN', 'en-IN', etc.
+      final languageCode = language != null ? '$language-IN' : 'hi-IN';
+      
       await _voiceService.connect(
         participantName: 'Mobile User',
-        language: language,
+        language: languageCode,
       );
 
       _isMicEnabled = _voiceService.isMicrophoneEnabled;
@@ -158,19 +152,11 @@ class VoiceProvider extends ChangeNotifier {
 
   /// Add message to transcript
   void _addToTranscript(Map<String, dynamic> message) {
-    final entry = {
+    _transcript.add({
       'speaker': message['speaker'] ?? 'user',
       'text': message['text'] ?? '',
       'timestamp': message['timestamp'] ?? DateTime.now().toIso8601String(),
-    };
-    
-    // Attach citations to agent messages
-    if (entry['speaker'] == 'agent' && _lastCitations != null) {
-      entry['citations'] = _lastCitations;
-      _lastCitations = null; // Clear after attaching
-    }
-    
-    _transcript.add(entry);
+    });
 
     // Limit transcript size
     if (_transcript.length > 100) {

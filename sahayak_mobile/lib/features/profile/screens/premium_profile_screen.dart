@@ -46,79 +46,7 @@ class PremiumProfileScreen extends StatelessWidget {
                   .fadeIn(duration: 400.ms)
                   .slideY(begin: -0.1, end: 0),
 
-              const SizedBox(height: 24),
-
-              // User Details (for authenticated users)
-              if (!isGuest && user != null) ...[
-                _buildSection('Account Details'),
-                const SizedBox(height: 12),
-                _buildInfoTile(
-                  icon: Icons.person_outline,
-                  label: 'Full Name',
-                  value: user.name ?? 'Not provided',
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 400.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.phone_outlined,
-                  label: 'Phone Number',
-                  value: user.phoneNumber,
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 450.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.location_on_outlined,
-                  label: 'State',
-                  value: user.state ?? 'Not provided',
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 500.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.location_city_outlined,
-                  label: 'District',
-                  value: user.district ?? 'Not provided',
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 550.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.home_outlined,
-                  label: 'Village / Town',
-                  value: user.villageOrTown ?? 'Not provided',
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 600.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.pin_drop_outlined,
-                  label: 'Pincode',
-                  value: user.pincode ?? 'Not provided',
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 625.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.category_outlined,
-                  label: 'Caste Category',
-                  value: _formatCasteCategory(user.casteCategory),
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 650.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.work_outline,
-                  label: 'User Type',
-                  value: _formatUserType(user.userType),
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 700.ms),
-                const SizedBox(height: 8),
-                _buildInfoTile(
-                  icon: Icons.group_outlined,
-                  label: 'Cooperative Role',
-                  value: _formatCooperativeRole(user.cooperativeRole),
-                  iconColor: AppColors.primary,
-                ).animate().fadeIn(delay: 750.ms),
-                
-                const SizedBox(height: 24),
-              ],
-
-              const SizedBox(height: 8),
+              const SizedBox(height: 32),
 
               // Preferences (available for all)
               _buildSection('Preferences'),
@@ -782,25 +710,5 @@ class PremiumProfileScreen extends StatelessWidget {
         context.go('/landing');
       }
     }
-  }
-
-  String _formatCasteCategory(String? category) {
-    if (category == null) return 'Not provided';
-    return category.toUpperCase();
-  }
-
-  String _formatUserType(String? type) {
-    if (type == null) return 'Not provided';
-    return type.split('_').map((word) => 
-      word[0].toUpperCase() + word.substring(1).toLowerCase()
-    ).join(' ');
-  }
-
-  String _formatCooperativeRole(String? role) {
-    if (role == null) return 'Not provided';
-    if (role == 'NOT_APPLICABLE') return 'Not Applicable';
-    return role.split('_').map((word) => 
-      word[0].toUpperCase() + word.substring(1).toLowerCase()
-    ).join(' ');
   }
 }

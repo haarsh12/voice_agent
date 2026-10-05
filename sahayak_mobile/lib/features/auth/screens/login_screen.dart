@@ -29,10 +29,27 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    setState(() => _isLoading = true);
+
+    final authProvider = context.read<AuthProvider>();
     final phoneNumber = '+91${_phoneController.text.trim()}';
-    
-    // Navigate to create account screen
-    context.push('/create-account', extra: phoneNumber);
+
+    final success = await authProvider.requestOtp(phoneNumber);
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+
+      if (success) {
+        context.push('/otp-verification', extra: phoneNumber);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(authProvider.errorMessage ?? 'Failed to send OTP'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _continueAsGuest() async {
@@ -187,7 +204,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               color: Colors.white,
                             ),
                           )
-                        : const Text('Continue'),
+                        : const Text('Request OTP'),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -230,7 +247,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 // Info text
                 Center(
                   child: Text(
-                    'Enter your mobile number to get started',
+                    'We will send you a one-time password\nto verify your number',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,

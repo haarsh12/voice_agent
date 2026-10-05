@@ -55,7 +55,7 @@ dependencies:
   
   # Image & File
   image_picker: ^1.0.7
-  # file_picker: ^6.1.1  # Removed due to compilation issues
+  file_picker: ^8.1.7
   
   # QR & Barcode
   qr_flutter: ^4.1.0

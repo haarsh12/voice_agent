@@ -8,7 +8,7 @@ class ApiConfig {
   // Default production URL - update this when deploying
   static const String _defaultUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.10.207:8000', // Laptop IP on same WiFi network
+    defaultValue: 'http://10.99.159.207:8000', // Laptop IP on same WiFi network
   );
 
   /// Base URL for all HTTP API calls
