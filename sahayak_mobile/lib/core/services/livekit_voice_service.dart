@@ -239,6 +239,7 @@ class LiveKitVoiceService {
       if (newText.isEmpty) return;
 
       final key = participantIdentity;
+      final eventType = isAgent ? 'agent_transcript' : 'user_transcript';
       
       if (hasFinalSegment) {
         // This is a complete sentence - emit it
@@ -248,10 +249,10 @@ class LiveKitVoiceService {
         if (finalText.isNotEmpty) {
           _logger.i('📝 FINAL Transcription: ${isAgent ? "AGENT" : "USER"} -> $finalText');
           
-          // Emit transcript event
-          final eventType = isAgent ? 'agent_transcript' : 'user_transcript';
+          // Emit final transcript event
           _uiEvents.add(VoiceUiEvent(eventType, {
             'text': finalText,
+            'is_final': true,
             'participant': participantIdentity,
           }));
         }
@@ -262,6 +263,16 @@ class LiveKitVoiceService {
         // Interim transcript - REPLACE (don't append) as STT sends full text each time
         _accumulatedTranscripts[key] = newText;
         _logger.d('📝 Interim: ${isAgent ? "AGENT" : "USER"} -> $newText');
+        
+        // For agent speech, emit interim transcripts so text appears word-by-word live
+        // For user speech, skip interim to avoid UI clutter
+        if (isAgent && newText.isNotEmpty) {
+          _uiEvents.add(VoiceUiEvent(eventType, {
+            'text': newText,
+            'is_final': false,
+            'participant': participantIdentity,
+          }));
+        }
       }
     } catch (e) {
       _logger.e('Error processing transcription: $e');

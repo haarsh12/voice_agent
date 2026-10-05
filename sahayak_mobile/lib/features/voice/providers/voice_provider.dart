@@ -55,13 +55,13 @@ class VoiceProvider extends ChangeNotifier {
           _errorMessage = event.payload['message'] ?? 'Unknown error';
           break;
 
-        // User speech transcript
-        case 'transcript':
+        // User speech transcript (only final)
         case 'user_transcript':
-        case 'stt_transcript':
-          final text = event.payload['text']?.toString().trim() ?? 
-                      event.payload['transcript']?.toString().trim() ?? '';
-          if (text.isNotEmpty) {
+          final text = event.payload['text']?.toString().trim() ?? '';
+          final isFinal = event.payload['is_final'] == true;
+          
+          // Only add final user transcripts to avoid clutter
+          if (text.isNotEmpty && isFinal) {
             _addToTranscript({
               'speaker': 'user',
               'text': text,
@@ -70,17 +70,21 @@ class VoiceProvider extends ChangeNotifier {
           }
           break;
 
-        // Agent response
-        case 'agent_response':
+        // Agent response (interim + final for live streaming)
         case 'agent_transcript':
+        case 'agent_response':
         case 'tts_text':
           final text = event.payload['text']?.toString().trim() ?? '';
+          final isFinal = event.payload['is_final'] == true;
+          
           if (text.isNotEmpty) {
-            _addToTranscript({
-              'speaker': 'agent',
-              'text': text,
-              'timestamp': DateTime.now().toIso8601String(),
-            });
+            if (isFinal) {
+              // Replace interim with final text
+              _replaceLastAgentMessage(text);
+            } else {
+              // Update or add interim message for live streaming effect
+              _updateOrAddAgentMessage(text);
+            }
           }
           break;
 
@@ -197,6 +201,39 @@ class VoiceProvider extends ChangeNotifier {
     // Limit transcript size
     if (_transcript.length > 100) {
       _transcript.removeAt(0);
+    }
+  }
+
+  /// Update the last agent message or add a new one (for interim transcripts)
+  void _updateOrAddAgentMessage(String text) {
+    // Check if the last message is from agent
+    if (_transcript.isNotEmpty && _transcript.last['speaker'] == 'agent') {
+      // Update the existing message with new interim text
+      _transcript.last['text'] = text;
+    } else {
+      // Add new agent message
+      _addToTranscript({
+        'speaker': 'agent',
+        'text': text,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+    }
+  }
+
+  /// Replace the last agent message with final text
+  void _replaceLastAgentMessage(String finalText) {
+    // Check if the last message is from agent
+    if (_transcript.isNotEmpty && _transcript.last['speaker'] == 'agent') {
+      // Replace interim with final text
+      _transcript.last['text'] = finalText;
+      _transcript.last['timestamp'] = DateTime.now().toIso8601String();
+    } else {
+      // Add new agent message if none exists
+      _addToTranscript({
+        'speaker': 'agent',
+        'text': finalText,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
     }
   }
 
