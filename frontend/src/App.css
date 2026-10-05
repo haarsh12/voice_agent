@@ -846,3 +846,144 @@ textarea { background-color: var(--surface); }
   .scheme-modal__official-link { width: 100%; justify-content: center; }
 }
 
+
+/* Mobile Menu Overlay and Panel */
+.mobile-menu-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.2s ease;
+}
+
+.mobile-menu {
+  display: flex;
+  width: min(320px, 85vw);
+  flex-direction: column;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  animation: slideIn 0.3s ease;
+}
+
+.mobile-menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mobile-menu__title {
+  color: var(--ink);
+  font-size: 1.1rem;
+  font-weight: 750;
+}
+
+.mobile-menu__close {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink);
+  background: transparent;
+  transition: background 0.2s ease;
+}
+
+.mobile-menu__close:hover {
+  background: var(--subtle);
+}
+
+.mobile-menu__nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.mobile-menu__nav button {
+  display: flex;
+  align-items: center;
+  padding: 14px 12px;
+  border-radius: 10px;
+  color: #555;
+  background: transparent;
+  font-size: 0.95rem;
+  font-weight: 650;
+  text-align: left;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.mobile-menu__nav button:hover {
+  color: var(--ink);
+  background: var(--subtle);
+}
+
+.mobile-menu__nav button.is-active {
+  color: var(--accent);
+  background: rgba(182, 76, 75, 0.08);
+}
+
+.mobile-menu__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.mobile-menu__footer button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  color: #555;
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 650;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.mobile-menu__footer button:hover {
+  background: var(--subtle);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (min-width: 900px) {
+  .mobile-menu-button {
+    display: none;
+  }
+}
+
+@media (max-width: 899px) {
+  .mobile-menu-button {
+    display: grid;
+  }
+  
+  .site-navigation {
+    display: none;
+  }
+}
