@@ -666,12 +666,12 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
           // Text field - properly rounded with black border
           Expanded(
             child: Container(
-              height: 38,
+              height: 42,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(19),
+                borderRadius: BorderRadius.circular(21),
                 border: Border.all(
-                  color: Colors.black,
+                  color: const Color(0xFF111827), // Solid black border
                   width: 1.5,
                 ),
               ),
@@ -681,17 +681,19 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
                 decoration: const InputDecoration(
                   hintText: 'Type a message...',
                   hintStyle: TextStyle(
-                    color: Color(0xFF9CA3AF),
-                    fontSize: 14,
+                    color: Color(0xFFB0B0B0), // Lighter gray for placeholder
+                    fontSize: 15,
                     fontWeight: FontWeight.w400,
                   ),
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
                   isDense: true,
                 ),
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF111827),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF000000), // Pure black text
+                  height: 1.3,
                 ),
                 maxLines: 1,
                 textInputAction: TextInputAction.send,
@@ -705,21 +707,21 @@ class _PremiumVoiceScreenV2State extends State<PremiumVoiceScreenV2> {
           // Send button - only shows when text entered
           AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            width: _messageController.text.trim().isEmpty ? 0 : 38,
-            height: 38,
+            width: _messageController.text.trim().isEmpty ? 0 : 42,
+            height: 42,
             child: _messageController.text.trim().isEmpty
                 ? const SizedBox.shrink()
                 : GestureDetector(
                     onTap: _sendMessage,
                     child: Container(
                       decoration: const BoxDecoration(
-                        color: Colors.black,
+                        color: Color(0xFF000000), // Pure black
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.send_rounded,
                         color: Colors.white,
-                        size: 18,
+                        size: 20,
                       ),
                     ),
                   ),
