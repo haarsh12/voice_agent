@@ -30,6 +30,9 @@ class LiveKitVoiceService {
   EventsListener<RoomEvent>? _listener;
   bool _initialized = false;
   bool _connecting = false;
+  
+  // Track accumulating transcripts per participant
+  final Map<String, String> _accumulatedTranscripts = {};
 
   LiveKitVoiceService({ApiClient? api}) : _api = api ?? ApiClient();
 
@@ -203,6 +206,7 @@ class LiveKitVoiceService {
 
     _listener = null;
     _room = null;
+    _accumulatedTranscripts.clear();
 
     if (listener != null) {
       await listener.dispose();
@@ -226,19 +230,39 @@ class LiveKitVoiceService {
       final participantIdentity = event.participant.identity;
       final isAgent = participantIdentity.contains('agent') || participantIdentity.contains('sahayak');
       
-      // Combine all segments into one text
-      final text = segments.map((s) => s.text).join(' ').trim();
+      // Check if any segment is final
+      final hasFinalSegment = segments.any((s) => s.isFinal);
       
-      if (text.isEmpty) return;
+      // Combine all segment text
+      final newText = segments.map((s) => s.text).join(' ').trim();
+      
+      if (newText.isEmpty) return;
 
-      _logger.i('📝 Transcription: ${isAgent ? "AGENT" : "USER"} -> $text');
+      final key = participantIdentity;
       
-      // Emit transcript event
-      final eventType = isAgent ? 'agent_transcript' : 'user_transcript';
-      _uiEvents.add(VoiceUiEvent(eventType, {
-        'text': text,
-        'participant': participantIdentity,
-      }));
+      if (hasFinalSegment) {
+        // This is a complete sentence - emit it
+        // Only use the final segment text, don't accumulate interim
+        final finalText = segments.where((s) => s.isFinal).map((s) => s.text).join(' ').trim();
+        
+        if (finalText.isNotEmpty) {
+          _logger.i('📝 FINAL Transcription: ${isAgent ? "AGENT" : "USER"} -> $finalText');
+          
+          // Emit transcript event
+          final eventType = isAgent ? 'agent_transcript' : 'user_transcript';
+          _uiEvents.add(VoiceUiEvent(eventType, {
+            'text': finalText,
+            'participant': participantIdentity,
+          }));
+        }
+        
+        // Clear accumulated text for this participant
+        _accumulatedTranscripts.remove(key);
+      } else {
+        // Interim transcript - REPLACE (don't append) as STT sends full text each time
+        _accumulatedTranscripts[key] = newText;
+        _logger.d('📝 Interim: ${isAgent ? "AGENT" : "USER"} -> $newText');
+      }
     } catch (e) {
       _logger.e('Error processing transcription: $e');
     }
