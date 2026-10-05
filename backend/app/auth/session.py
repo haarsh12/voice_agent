@@ -30,7 +30,20 @@ def get_engine() -> AsyncEngine | None:
         # a short transaction instead of failing a source check immediately.
         # Hosted PostgreSQL continues to use its normal concurrent engine.
         return create_async_engine(database_url, connect_args={"timeout": 30})
-    return create_async_engine(database_url, pool_pre_ping=True, pool_recycle=300)
+    # Render (and most managed Postgres services) run PgBouncer in transaction
+    # mode. asyncpg's server-side prepared statements are not compatible with
+    # that mode — reuse across connections raises "prepared statement already
+    # exists". Disabling the statement cache fixes this at a small per-query
+    # parse cost, which is negligible compared to network round-trips.
+    return create_async_engine(
+        database_url,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        connect_args={
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        },
+    )
 
 
 @lru_cache
