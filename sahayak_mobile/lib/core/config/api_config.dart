@@ -6,9 +6,15 @@ class ApiConfig {
   const ApiConfig._();
 
   // Default production URL - update this when deploying
+  // static const String _defaultUrl = String.fromEnvironment(
+  //   'API_BASE_URL',
+  //   defaultValue: 'https://voice-agent-backend-s1fs.onrender.com', // Render production backend
+  // );
+
+  // Development mode - Local server
   static const String _defaultUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.99.159.207:8000', // Laptop IP on same WiFi network
+    defaultValue: 'http://172.20.10.14:8000', // Local development backend
   );
 
   /// Base URL for all HTTP API calls

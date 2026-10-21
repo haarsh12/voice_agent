@@ -118,8 +118,8 @@ class KnowledgeRetriever:
                             self._embedding_cache.set(query, vectors[0])
                         track_embedding(embed_metric.duration_ms, success=True)
                 
-                # Reduced from 100 to 50 for faster search
-                search_limit = min(self.settings.knowledge_retrieval_limit * 5, 50)
+                # Optimized for voice latency: reduced to 20 for faster search
+                search_limit = min(self.settings.knowledge_retrieval_limit * 2, 20)
                 
                 with measure_time("vector_search", limit=search_limit, threshold_ms=500):
                     hits = await asyncio.to_thread(
@@ -149,10 +149,10 @@ class KnowledgeRetriever:
             
             if terms:
                 try:
-                    # Increased from 200 to 250 for better fallback coverage
+                    # Optimized for voice latency: reduced to 50 for faster fallback
                     fallback_rows = await self.repository.current_chunks_for_text_search(
                         terms,
-                        limit=min(self.settings.knowledge_retrieval_limit * 25, 250),
+                        limit=min(self.settings.knowledge_retrieval_limit * 5, 50),
                     )
                     lexical_scores = {
                         chunk.vector_point_id: _lexical_score(query, chunk.content, document.title, chunk.heading)
@@ -161,8 +161,8 @@ class KnowledgeRetriever:
                     evidence = [
                         item
                         for item in _validated_evidence(fallback_rows, lexical_scores, user_context)
-                        # Lowered from 0.4 to 0.25 for better recall
-                        if item.score >= 0.25
+                        # Optimized threshold for voice latency
+                        if item.score >= 0.35
                     ]
                 except Exception:
                     # Keep the retrieval failure unobservable to the browser

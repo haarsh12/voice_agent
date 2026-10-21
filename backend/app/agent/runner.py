@@ -610,6 +610,11 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
     user_context: UserKnowledgeContext | None = None
     has_reference_documents = False
     account_id: int | None = None
+    
+    # Cache guest context to avoid fetching on every turn
+    _context_cache_time: float | None = None
+    _context_cache_ttl = 30.0  # seconds - refresh after 30s
+    
     if guest_session_id and guest_session_secret:
         try:
             voice_context = await fetch_guest_context(
@@ -621,6 +626,7 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             user_context = voice_context.user_context
             has_reference_documents = voice_context.has_reference_documents
             account_id = voice_context.account_id
+            _context_cache_time = asyncio.get_event_loop().time()  # Mark initial cache time
         except GuestSessionClientError:
             # Context enhances the call but an unavailable local API should
             # never prevent the voice agent from starting a conversation.
@@ -696,12 +702,20 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
         )
         return language, language_revision, True
 
-    async def refresh_guest_context() -> None:
-        """Pull latest text/document history before the next voice reply."""
+    async def refresh_guest_context(*, force: bool = False) -> None:
+        """Pull latest text/document history before the next voice reply with caching."""
 
-        nonlocal guest_context, user_context, has_reference_documents, account_id
+        nonlocal guest_context, user_context, has_reference_documents, account_id, _context_cache_time
         if not guest_session_id or not guest_session_secret:
             return
+        
+        # Check if cache is still valid (skip refresh if within TTL)
+        if not force and _context_cache_time is not None:
+            elapsed = asyncio.get_event_loop().time() - _context_cache_time
+            if elapsed < _context_cache_ttl:
+                logger.debug("guest_context_cache_hit elapsed=%.2fs", elapsed)
+                return
+        
         try:
             voice_context = await fetch_guest_context(
                 settings.guest_session_api_url,
@@ -712,6 +726,8 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             user_context = voice_context.user_context
             has_reference_documents = voice_context.has_reference_documents
             account_id = voice_context.account_id
+            _context_cache_time = asyncio.get_event_loop().time()  # Update cache time
+            logger.debug("guest_context_refreshed")
         except GuestSessionClientError:
             logger.warning("guest_context_unavailable phase=refresh")
             return
@@ -831,7 +847,8 @@ async def sahayak_voice_agent(ctx: JobContext) -> None:
             if message.get("type") != "refresh_context":
                 logger.warning("ignored_context_control reason=unsupported_message")
                 return
-            task = asyncio.create_task(refresh_guest_context())
+            # Manual refresh request should bypass cache
+            task = asyncio.create_task(refresh_guest_context(force=True))
             task.add_done_callback(_log_background_exception)
             return
 
